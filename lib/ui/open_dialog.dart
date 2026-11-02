@@ -50,6 +50,24 @@ class _OpenDialogState extends State<OpenDialog> {
     }
   }
 
+  Future<void> browsePair() async {
+    try {
+      final files = await openFiles(confirmButtonText: '选择两个文件');
+      if (!mounted || files.isEmpty) return;
+      setState(() {
+        if (files.length != 2) {
+          error = '请一次选择恰好两个文件';
+        } else {
+          left.text = files[0].path;
+          right.text = files[1].path;
+          error = null;
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    }
+  }
+
   Future<void> submit() async {
     if (left.text.trim().isEmpty ||
         right.text.trim().isEmpty ||
@@ -119,6 +137,27 @@ class _OpenDialogState extends State<OpenDialog> {
                   : (v) => setState(() => merge = v.first),
             ),
             const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: busy ? null : browsePair,
+                  icon: const Icon(Icons.file_open_outlined),
+                  label: Text(merge ? '同时选择本地和远端' : '同时选择两个文件'),
+                ),
+                TextButton.icon(
+                  onPressed: busy
+                      ? null
+                      : () => setState(() {
+                          final path = left.text;
+                          left.text = right.text;
+                          right.text = path;
+                        }),
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('交换左右'),
+                ),
+              ],
+            ),
             if (merge) field('共同祖先 · Base', base),
             field(merge ? '本地文件 · Local' : '左侧 · 原始文件', left),
             field(merge ? '远端文件 · Remote' : '右侧 · 修改文件', right),

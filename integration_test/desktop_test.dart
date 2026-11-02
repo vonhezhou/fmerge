@@ -11,6 +11,7 @@ import 'package:re_editor/re_editor.dart';
 import 'package:fmerge/main.dart';
 import 'package:fmerge/session.dart';
 import 'package:fmerge/core/files.dart';
+import 'package:fmerge/core/git.dart';
 import 'package:fmerge/core/launch.dart';
 import 'package:fmerge/core/settings.dart';
 import 'package:fmerge/ui/code_pane.dart';
@@ -244,6 +245,52 @@ void main() {
       largePanes.last.scroll.verticalScroller.offset,
     );
     expect(large.leftEditor.text, original.join('\n'));
+    await tester.tap(find.byTooltip('仅显示差异及前后 3 行'));
+    await tester.pumpAndSettle();
+    expect(large.leftEditor.diffLayout!.totalRows, 10);
+    expect(large.rightEditor.diffLayout!.totalRows, 10);
+    expect(large.leftEditor.text, original.join('\n'));
+    await tester.tap(find.byTooltip('显示整个文件'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+
+    // 在真实 App Sandbox 子进程中操作独立仓库，不触碰用户仓库与全局配置。
+    final repository = await Directory('${dir.path}/git').create();
+    Future<String> git(List<String> args) async {
+      final result = await Process.run(await GitReview.executable(), [
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'commit.gpgsign=false',
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.invalid',
+        ...args,
+      ], workingDirectory: repository.path);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      return result.stdout as String;
+    }
+
+    await git(['init', '-q']);
+    await git(['config', 'core.autocrlf', 'false']);
+    final gitFile = File('${repository.path}/file.txt');
+    final gitLines = List.generate(30, (i) => 'line $i');
+    await gitFile.writeAsString('${gitLines.join('\n')}\n');
+    await git(['add', '.']);
+    await git(['commit', '-qm', 'fixture']);
+    gitLines[3] = 'stage this';
+    gitLines[25] = 'keep unstaged';
+    final workingText = '${gitLines.join('\n')}\n';
+    await gitFile.writeAsString(workingText);
+    final review = await GitReview.open(gitFile.path);
+    expect(review.patch.hunks.length, 2);
+    await review.apply({0});
+    expect(await git(['show', ':file.txt']), contains('stage this'));
+    expect(await git(['show', ':file.txt']), isNot(contains('keep unstaged')));
+    expect(await gitFile.readAsString(), workingText);
+    await (await GitReview.open(gitFile.path, staged: true)).apply({0});
+    expect(await git(['diff', '--cached']), '');
+    expect(await gitFile.readAsString(), workingText);
   });
 }

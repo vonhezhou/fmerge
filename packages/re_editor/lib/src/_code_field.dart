@@ -1361,6 +1361,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
     _displayParagraphs.clear();
     for (var i = max(0, low - 1); i < _codes.length; i++) {
+      if (layout.hiddenLines.contains(i)) continue;
       final y = paddingTop + layout.lineRows[i] * _preferredLineHeight;
       if (y > bottom + _preferredLineHeight && _displayParagraphs.isNotEmpty) break;
       final paragraph = _buildParagraph(i, double.infinity);
@@ -1389,6 +1390,15 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       if (color != null) canvas.drawRect(Rect.fromLTWH(origin.dx,
         origin.dy + paddingTop + row * _preferredLineHeight - _verticalViewport.pixels,
         size.width, _preferredLineHeight), Paint()..color = color);
+    }
+    for (final entry in layout.rowLabels.entries) {
+      if (entry.key < first || entry.key >= last) continue;
+      final painter = TextPainter(text: TextSpan(text: entry.value,
+        style: _textStyle.copyWith(color: const Color(0xff758196))),
+        textDirection: TextDirection.ltr)..layout();
+      painter.paint(canvas, Offset(origin.dx + paddingLeft,
+        origin.dy + paddingTop + entry.key * _preferredLineHeight - _verticalViewport.pixels));
+      painter.dispose();
     }
     for (final paragraph in _displayParagraphs) {
       if (layout.showWhitespace) {

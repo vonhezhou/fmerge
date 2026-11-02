@@ -6,6 +6,7 @@ import 'package:flutter/material.dart' show Color;
 import 'package:re_editor/re_editor.dart';
 
 import 'core/diff.dart';
+import 'core/context_rows.dart';
 import 'core/alignment.dart';
 import 'core/files.dart';
 import 'core/launch.dart';
@@ -30,16 +31,18 @@ class CompareSession extends ChangeNotifier {
     }
     _lastLeft = leftEditor.text;
     _lastRight = rightEditor.text;
+    _lastLeftSelection = leftEditor.selection;
+    _lastRightSelection = rightEditor.selection;
     leftEditor.addListener(_inputChanged);
     rightEditor.addListener(_inputChanged);
     _lastResult = resultEditor?.text ?? '';
     _savedResult = output?.text ?? '';
   }
-  final TextFile left, right;
+  TextFile left, right;
   final TextFile? base;
   TextFile? output;
   final bool readOnly;
-  late final CodeLineEditingController leftEditor, rightEditor;
+  late CodeLineEditingController leftEditor, rightEditor;
   CodeLineEditingController? resultEditor;
   MergeSession? merger;
   final _positions = Expando<CodeLinePosition>();
@@ -47,17 +50,83 @@ class CompareSession extends ChangeNotifier {
   ThreeWayAlignment? mergeAlignment;
   List<int> get hunkRows => isMerge
       ? mergeAlignment?.changeRows ?? const []
-      : diff?.hunkRows ?? const [];
+      : [
+          for (final row in diff?.hunkRows ?? <int>[])
+            _context?.rows[row] ?? row,
+        ];
   String? error;
   bool busy = false,
       savedMerge = false,
       _disposed = false,
       _programmatic = false;
   late String _lastLeft, _lastRight, _lastResult, _savedResult;
+  late CodeLineSelection _lastLeftSelection, _lastRightSelection;
   Timer? _timer;
   var _generation = 0;
   CompareOptions options = const CompareOptions();
   bool showWhitespace = false;
+  bool contextOnly = false;
+  ContextRows? _context;
+  CodeDiffLayout? _fullLeft, _fullRight;
+
+  void swapSides() {
+    if (isMerge || output != null || busy) return;
+    final file = left;
+    left = right;
+    right = file;
+    final controller = leftEditor;
+    leftEditor = rightEditor;
+    rightEditor = controller;
+    _lastLeft = leftEditor.text;
+    _lastRight = rightEditor.text;
+    _lastLeftSelection = leftEditor.selection;
+    _lastRightSelection = rightEditor.selection;
+    diff = null;
+    _fullLeft = _fullRight = null;
+    refresh();
+  }
+
+  void setContextOnly(bool value) {
+    contextOnly = value;
+    _applyLayouts();
+    notifyListeners();
+  }
+
+  void _applyLayouts() {
+    if (_fullLeft == null || _fullRight == null) return;
+    _programmatic = true;
+    _context = contextOnly && !isMerge && diff != null
+        ? ContextRows(diff!.rows.length, {
+            for (var i = 0; i < diff!.rows.length; i++)
+              if (diff!.rows[i].changed) i,
+          })
+        : null;
+    CodeDiffLayout project(CodeDiffLayout layout) {
+      final map = _context;
+      if (map == null) return layout;
+      return CodeDiffLayout(
+        lineRows: [for (final row in layout.lineRows) map.rows[row]],
+        totalRows: map.totalRows,
+        hiddenLines: {
+          for (var i = 0; i < layout.lineRows.length; i++)
+            if (map.hidden.contains(layout.lineRows[i])) i,
+        },
+        rowLabels: map.labels,
+        rowColors: {
+          for (final entry in layout.rowColors.entries)
+            if (!map.hidden.contains(entry.key))
+              map.rows[entry.key]: entry.value,
+        },
+        ranges: layout.ranges,
+        showWhitespace: layout.showWhitespace,
+      );
+    }
+
+    leftEditor.diffLayout = project(_fullLeft!);
+    rightEditor.diffLayout = project(_fullRight!);
+    _programmatic = false;
+  }
+
   bool get isMerge => base != null;
   int get pending => merger?.pending ?? 0;
   bool get leftDirty => leftEditor.text != left.text;
@@ -109,7 +178,28 @@ class CompareSession extends ChangeNotifier {
   void _inputChanged() {
     if (_programmatic || _disposed) return;
     final a = leftEditor.text, b = rightEditor.text;
-    if (a == _lastLeft && b == _lastRight) return;
+    final movedLeft = _lastLeftSelection != leftEditor.selection;
+    final movedRight = _lastRightSelection != rightEditor.selection;
+    _lastLeftSelection = leftEditor.selection;
+    _lastRightSelection = rightEditor.selection;
+    if (a == _lastLeft && b == _lastRight) {
+      // 查找、跳转或键盘导航进入隐藏行时展开，避免光标落在不可见内容中。
+      if (contextOnly &&
+          ((movedLeft &&
+                  leftEditor.diffLayout?.hiddenLines.contains(
+                        leftEditor.selection.extentIndex,
+                      ) ==
+                      true) ||
+              (movedRight &&
+                  rightEditor.diffLayout?.hiddenLines.contains(
+                        rightEditor.selection.extentIndex,
+                      ) ==
+                      true))) {
+        setContextOnly(false);
+      }
+      return;
+    }
+    if (contextOnly) setContextOnly(false);
     _lastLeft = a;
     _lastRight = b;
     schedule();
@@ -166,20 +256,17 @@ class CompareSession extends ChangeNotifier {
       _programmatic = true;
       if (branches != null) {
         mergeAlignment = alignThreeWay(branches[0], branches[1]);
-        leftEditor.diffLayout = _branchLayout(
-          branches[0],
-          mergeAlignment!.localRows,
-          true,
-        );
-        rightEditor.diffLayout = _branchLayout(
+        _fullLeft = _branchLayout(branches[0], mergeAlignment!.localRows, true);
+        _fullRight = _branchLayout(
           branches[1],
           mergeAlignment!.remoteRows,
           false,
         );
       } else {
-        leftEditor.diffLayout = _layout(result, true);
-        rightEditor.diffLayout = _layout(result, false);
+        _fullLeft = _layout(result, true);
+        _fullRight = _layout(result, false);
       }
+      _applyLayouts();
       _programmatic = false;
     } catch (e) {
       if (!_disposed && generation == _generation) error = e.toString();

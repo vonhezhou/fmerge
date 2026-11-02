@@ -10,6 +10,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../core/access.dart';
 import '../core/files.dart';
+import '../core/diff.dart';
 import '../core/launch.dart';
 import '../core/merge.dart';
 import '../core/settings.dart';
@@ -17,6 +18,7 @@ import '../session.dart';
 import '../palette.dart';
 import 'code_pane.dart';
 import 'open_dialog.dart';
+import 'git_dialog.dart';
 import 'settings_dialog.dart';
 import 'format_dialog.dart';
 import 'base_dialog.dart';
@@ -551,6 +553,40 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     }
   }
 
+  void _swapSides() {
+    final s = session;
+    if (s == null || s.isMerge || s.output != null || s.busy || _saving) return;
+    _leftFind?.dispose();
+    _rightFind?.dispose();
+    s.swapSides();
+    _leftFind = CodeFindController(s.leftEditor)..addListener(_findChanged);
+    _rightFind = CodeFindController(s.rightEditor)..addListener(_findChanged);
+    setState(() {
+      _active = 1 - _active;
+      _hunk = 0;
+      _leftEditable = !s.readOnly && s.leftDirty;
+    });
+  }
+
+  void _toggleWhitespace() {
+    settings.whitespace = settings.whitespace == WhitespaceMode.exact
+        ? WhitespaceMode.all
+        : WhitespaceMode.exact;
+    session?.refresh(settings.comparison);
+    _saveSettings();
+  }
+
+  Future<void> _git() async {
+    final s = session;
+    await showDialog(
+      context: context,
+      builder: (_) => GitDialog(
+        path: s?.isMerge == true ? s?.output?.path : s?.right.path,
+        nativeAccess: widget.nativeWindow,
+      ),
+    );
+  }
+
   Future<void> _settings() async {
     await showDialog(
       context: context,
@@ -914,93 +950,155 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         color: bg,
         border: Border(bottom: BorderSide(color: border)),
       ),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: '撤销',
-            onPressed: s.readOnly ? null : _undo,
-            icon: const Icon(Icons.undo, size: 18),
-          ),
-          IconButton(
-            tooltip: '重做',
-            onPressed: s.readOnly ? null : _redo,
-            icon: const Icon(Icons.redo, size: 18),
-          ),
-          const SizedBox(width: 6),
-          IconButton(
-            tooltip: '查找 / 替换',
-            onPressed: () => finder?.findMode(),
-            icon: const Icon(Icons.search, size: 18),
-          ),
-          const SizedBox(width: 8),
-          const VerticalDivider(indent: 12, endIndent: 12),
-          IconButton(
-            tooltip: '上一处差异 · Shift F7',
-            onPressed: () => _navigate(-1),
-            icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-          ),
-          Text(
-            d == null
-                ? '正在比较…'
-                : s.hunkRows.isEmpty
-                ? '文件相同'
-                : '${_hunk + 1} / ${s.hunkRows.length} 处差异',
-            style: const TextStyle(color: muted, fontSize: 12),
-          ),
-          IconButton(
-            tooltip: '下一处差异 · F7',
-            onPressed: () => _navigate(1),
-            icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-          ),
-          if (!s.isMerge) ...[
-            IconButton(
-              tooltip: '使用左侧差异块',
-              onPressed: s.readOnly || s.busy || d == null || d.changes.isEmpty
-                  ? null
-                  : () => s.applyHunk(_hunk),
-              icon: const Icon(Icons.arrow_forward, color: accent, size: 19),
-            ),
-            PopupMenuButton<int>(
-              tooltip: '组合当前差异块',
-              onSelected: (v) => s.applyHunk(_hunk, combine: v),
-              enabled: !s.readOnly && !s.busy && d?.changes.isNotEmpty == true,
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 1, child: Text('左侧在前，右侧在后')),
-                PopupMenuItem(value: 2, child: Text('右侧在前，左侧在后')),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: 1020,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: '撤销',
+                onPressed: s.readOnly ? null : _undo,
+                icon: const Icon(Icons.undo, size: 18),
+              ),
+              IconButton(
+                tooltip: '重做',
+                onPressed: s.readOnly ? null : _redo,
+                icon: const Icon(Icons.redo, size: 18),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: '查找 / 替换',
+                onPressed: () => finder?.findMode(),
+                icon: const Icon(Icons.search, size: 18),
+              ),
+              IconButton(
+                tooltip: s.showWhitespace ? '隐藏空白字符' : '显示空白字符',
+                onPressed: () {
+                  settings.showWhitespace = !settings.showWhitespace;
+                  s.showWhitespace = settings.showWhitespace;
+                  s.updateResultLayout();
+                  s.refresh(settings.comparison);
+                  _saveSettings();
+                },
+                icon: Icon(
+                  Icons.space_bar,
+                  size: 18,
+                  color: s.showWhitespace ? accent : muted,
+                ),
+              ),
+              IconButton(
+                tooltip: settings.whitespace == WhitespaceMode.exact
+                    ? '隐藏空白字符差异'
+                    : '显示空白字符差异',
+                onPressed: _toggleWhitespace,
+                icon: Icon(
+                  Icons.format_clear,
+                  size: 18,
+                  color: settings.whitespace != WhitespaceMode.exact
+                      ? accent
+                      : muted,
+                ),
+              ),
+              IconButton(
+                tooltip: s.contextOnly ? '显示整个文件' : '仅显示差异及前后 3 行',
+                onPressed: s.isMerge || s.busy
+                    ? null
+                    : () => s.setContextOnly(!s.contextOnly),
+                icon: Icon(
+                  s.contextOnly ? Icons.unfold_more : Icons.unfold_less,
+                  size: 18,
+                  color: s.contextOnly ? accent : muted,
+                ),
+              ),
+              IconButton(
+                tooltip: s.output != null ? '指定输出位置时不能交换左右' : '交换左右文件',
+                onPressed: s.isMerge || s.output != null || s.busy || _saving
+                    ? null
+                    : _swapSides,
+                icon: const Icon(Icons.swap_horiz, size: 18),
+              ),
+              IconButton(
+                tooltip: 'Git · 按块暂存 / 取消暂存',
+                onPressed: _saving || s.readOnly ? null : _git,
+                icon: const Icon(Icons.account_tree_outlined, size: 18),
+              ),
+              const VerticalDivider(indent: 12, endIndent: 12),
+              IconButton(
+                tooltip: '上一处差异 · Shift F7',
+                onPressed: () => _navigate(-1),
+                icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+              ),
+              Text(
+                d == null
+                    ? '正在比较…'
+                    : s.hunkRows.isEmpty
+                    ? '文件相同'
+                    : '${_hunk + 1} / ${s.hunkRows.length} 处差异',
+                style: const TextStyle(color: muted, fontSize: 12),
+              ),
+              IconButton(
+                tooltip: '下一处差异 · F7',
+                onPressed: () => _navigate(1),
+                icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+              ),
+              if (!s.isMerge) ...[
+                IconButton(
+                  tooltip: '使用左侧差异块',
+                  onPressed:
+                      s.readOnly || s.busy || d == null || d.changes.isEmpty
+                      ? null
+                      : () => s.applyHunk(_hunk),
+                  icon: const Icon(
+                    Icons.arrow_forward,
+                    color: accent,
+                    size: 19,
+                  ),
+                ),
+                PopupMenuButton<int>(
+                  tooltip: '组合当前差异块',
+                  onSelected: (v) => s.applyHunk(_hunk, combine: v),
+                  enabled:
+                      !s.readOnly && !s.busy && d?.changes.isNotEmpty == true,
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 1, child: Text('左侧在前，右侧在后')),
+                    PopupMenuItem(value: 2, child: Text('右侧在前，左侧在后')),
+                  ],
+                  icon: const Icon(Icons.playlist_add, size: 19, color: muted),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: s.readOnly
+                      ? null
+                      : () => setState(() => _leftEditable = !_leftEditable),
+                  icon: Icon(
+                    _leftEditable ? Icons.lock_open : Icons.lock_outline,
+                    size: 14,
+                  ),
+                  label: Text(
+                    _leftEditable ? '左侧可编辑' : '启用左侧编辑',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+              ] else ...[
+                const Spacer(),
+                _tag(
+                  s.pending > 0 ? '${s.pending} 处冲突待确认' : '全部冲突已处理',
+                  s.pending > 0 ? amber : green,
+                ),
               ],
-              icon: const Icon(Icons.playlist_add, size: 19, color: muted),
-            ),
-            const Spacer(),
-            TextButton.icon(
-              onPressed: s.readOnly
-                  ? null
-                  : () => setState(() => _leftEditable = !_leftEditable),
-              icon: Icon(
-                _leftEditable ? Icons.lock_open : Icons.lock_outline,
-                size: 14,
-              ),
-              label: Text(
-                _leftEditable ? '左侧可编辑' : '启用左侧编辑',
-                style: const TextStyle(fontSize: 11),
-              ),
-            ),
-          ] else ...[
-            const Spacer(),
-            _tag(
-              s.pending > 0 ? '${s.pending} 处冲突待确认' : '全部冲突已处理',
-              s.pending > 0 ? amber : green,
-            ),
-          ],
-          if (s.busy)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 10),
-              child: SizedBox(
-                width: 13,
-                height: 13,
-                child: CircularProgressIndicator(strokeWidth: 1.5),
-              ),
-            ),
-        ],
+              if (s.busy)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10),
+                  child: SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1135,7 +1233,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       ),
       Expanded(
         child: CodePane(
-          key: ValueKey((session, side)),
+          key: ValueKey((session, side, controller)),
           controller: controller,
           settings: settings,
           focus: focus,

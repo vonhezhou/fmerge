@@ -9,6 +9,7 @@ import 'package:fmerge/core/files.dart';
 import 'package:fmerge/core/settings.dart';
 import 'package:fmerge/ui/code_pane.dart';
 import 'package:fmerge/ui/workbench.dart';
+import 'package:fmerge/ui/git_dialog.dart';
 
 Future<void> ready(WidgetTester tester) async {
   await tester.runAsync(() async {
@@ -24,6 +25,84 @@ Future<void> ready(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('Git 界面只暂存勾选的块，并可从 Staged 取消暂存', (tester) async {
+    tester.view.physicalSize = const Size(920, 680);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final dir = Directory.systemTemp.createTempSync('fmerge-git-ui-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/file');
+    final lines = List.generate(30, (i) => 'line $i');
+    final original = '${lines.join('\n')}\n';
+    Future<String> git(List<String> args) async {
+      final result = await Process.run('git', args, workingDirectory: dir.path);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      return result.stdout as String;
+    }
+
+    await tester.runAsync(() async {
+      await git(['init', '-q']);
+      await file.writeAsString(original);
+      await git(['add', '.']);
+      await git([
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        'commit',
+        '-qm',
+        'fixture',
+      ]);
+      lines[3] = 'selected';
+      lines[25] = 'keep unstaged';
+      await file.writeAsString('${lines.join('\n')}\n');
+    });
+    Future<void> waitFor(String text) async {
+      await tester.pump();
+      await tester.runAsync(() async {
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (find.text(text).evaluate().isEmpty ||
+            find.byType(LinearProgressIndicator).evaluate().isNotEmpty) {
+          if (DateTime.now().isAfter(deadline)) fail('Git 界面操作超时：$text');
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await tester.pump();
+        }
+      });
+      await tester.pumpAndSettle();
+    }
+
+    // 真实子进程必须从 runAsync 启动，避免其 I/O 被测试虚拟时钟挂起。
+    await tester.runAsync(
+      () => tester.pumpWidget(MaterialApp(home: GitDialog(path: file.path))),
+    );
+    await waitFor('差异块 2');
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => tester.tap(find.text('暂存所选块')));
+    await waitFor('所选差异块已暂存，其余修改保留在工作区');
+    await tester.runAsync(() async {
+      final index = await git(['show', ':file']);
+      expect(index, contains('selected'));
+      expect(index, isNot(contains('keep unstaged')));
+    });
+    await tester.runAsync(() => tester.tap(find.text('Staged · 已暂存')));
+    await waitFor('差异块 1');
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => tester.tap(find.text('取消暂存所选块')));
+    await waitFor('此文件没有已暂存修改');
+    await tester.runAsync(() async {
+      expect(await git(['show', ':file']), original);
+      expect(await file.readAsString(), '${lines.join('\n')}\n');
+    });
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('欢迎页不点击任何控件即可使用 Ctrl O 打开比较', (tester) async {
     await tester.pumpWidget(FmergeApp(settings: Settings(persist: false)));
     await tester.pumpAndSettle();
@@ -80,6 +159,47 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('工具栏折叠保留真实文档，空白差异开关和左右交换可用', (tester) async {
+    tester.view.physicalSize = const Size(1100, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final lines = List.generate(80, (i) => 'line $i');
+    final right = [...lines]..[40] = 'changed';
+    final s = CompareSession(
+      TextFile.empty(lines.join('\n')),
+      TextFile.empty(right.join('\n')),
+    );
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: s),
+    );
+    await ready(tester);
+    await tester.tap(find.byTooltip('仅显示差异及前后 3 行'));
+    await tester.pumpAndSettle();
+    expect(s.contextOnly, true);
+    expect(s.leftEditor.diffLayout!.totalRows, 9);
+    expect(s.rightEditor.text, right.join('\n'));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byTooltip('显示整个文件'));
+    await tester.pumpAndSettle();
+    expect(s.leftEditor.diffLayout!.totalRows, 80);
+    await tester.tap(find.byTooltip('交换左右文件'));
+    await ready(tester);
+    expect(s.leftEditor.text, right.join('\n'));
+    expect(s.rightEditor.text, lines.join('\n'));
+    s.rightEditor.text = s.leftEditor.text.replaceFirst('line 0', 'line  0');
+    await tester.pump(const Duration(milliseconds: 170));
+    await ready(tester);
+    expect(s.diff!.changes.length, 1);
+    await tester.tap(find.byTooltip('隐藏空白字符差异'));
+    await ready(tester);
+    expect(s.diff!.changes, isEmpty);
+    await tester.tap(find.byTooltip('显示空白字符差异'));
+    await ready(tester);
+    expect(s.diff!.changes.length, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('保存按钮写入真实输出文件，外部修改需要显式确认', (tester) async {
     final dir = Directory.systemTemp.createTempSync('fmerge-ui-');
     addTearDown(() => dir.deleteSync(recursive: true));
