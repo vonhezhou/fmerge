@@ -256,7 +256,7 @@ class GitMergeLabels {
       }
       bool matches(TextFile file, String? oid) {
         if (oid == null) return false;
-        final bytes = TextFile.encode(file.original, file.encoding);
+        final bytes = file.originalBytes();
         final data = [...utf8.encode('blob ${bytes.length}\u0000'), ...bytes];
         return (oid.length == 40 ? sha1 : sha256).convert(data).toString() ==
             oid;

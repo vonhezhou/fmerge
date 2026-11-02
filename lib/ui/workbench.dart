@@ -318,7 +318,11 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     }
   }
 
-  Future<void> _open({bool merge = false, LaunchOptions? options}) async {
+  Future<void> _open({
+    bool merge = false,
+    LaunchOptions? options,
+    CompareSession? previous,
+  }) async {
     if (!await _leave() || !mounted) return;
     try {
       final next = options == null
@@ -327,7 +331,19 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               builder: (_) =>
                   OpenDialog(merge: merge, nativeAccess: widget.nativeWindow),
             )
-          : await CompareSession.open(options);
+          : await CompareSession.open(
+              options,
+              leftEncoding: previous?.left.encoding,
+              rightEncoding: previous?.right.encoding,
+              baseEncoding: previous?.base?.encoding,
+              outputEncoding: previous?.output?.encoding,
+            );
+      if (next != null && previous != null) {
+        next.leftLanguage = previous.leftLanguage;
+        next.rightLanguage = previous.rightLanguage;
+        next.resultLanguage = previous.resultLanguage;
+        next.baseLanguage = previous.baseLanguage;
+      }
       if (next != null && mounted) setState(() => _attach(next));
     } catch (e) {
       _message('打开失败：$e');
@@ -342,6 +358,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       return;
     }
     await _open(
+      previous: s,
       options: LaunchOptions(
         left: s.left.path,
         right: s.right.path,
@@ -1240,6 +1257,20 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                 onPressed: () => _showBase(),
                 child: const Text('查看祖先', style: TextStyle(fontSize: 10)),
               ),
+            LanguageMenu(
+              name: file.path ?? (side == 2 ? session!.left.name : file.name),
+              value: _languageOverride(side),
+              onChanged: (value) => setState(() {
+                switch (side) {
+                  case 0:
+                    session!.leftLanguage = value;
+                  case 1:
+                    session!.rightLanguage = value;
+                  default:
+                    session!.resultLanguage = value;
+                }
+              }),
+            ),
           ],
         ),
       ),
@@ -1271,9 +1302,11 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           settings: settings,
           focus: focus,
           scroll: scroll,
-          language: languageFor(
-            file.path ?? (side == 2 ? session!.left.name : file.name),
-          ),
+          language:
+              _languageOverride(side) ??
+              languageFor(
+                file.path ?? (side == 2 ? session!.left.name : file.name),
+              ),
           readOnly: readOnly,
           find: find,
           reservedFindHeight: side < 2 ? _sharedFindHeight : 0,
@@ -1284,6 +1317,11 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       ),
     ],
   );
+  String? _languageOverride(int side) => switch (side) {
+    0 => session!.leftLanguage,
+    1 => session!.rightLanguage,
+    _ => session!.resultLanguage,
+  };
   Widget _mergeContext() {
     final s = session!, labels = s.mergeLabels;
     return Container(
@@ -1461,7 +1499,12 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   Future<void> _showBase() => showDialog(
     context: context,
-    builder: (_) => BaseDialog(file: session!.base!, settings: settings),
+    builder: (_) => BaseDialog(
+      file: session!.base!,
+      settings: settings,
+      language: session!.baseLanguage,
+      onLanguageChanged: (value) => session!.baseLanguage = value,
+    ),
   );
   Widget _welcome() => Center(
     child: SingleChildScrollView(
@@ -1578,7 +1621,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           if (file != null) ...[
             const SizedBox(width: 16),
             Text(
-              '${file.encoding.name.toUpperCase()} · ${file.eol}',
+              '${file.encoding.label} · ${file.eol}',
               style: const TextStyle(fontSize: 11, color: muted),
             ),
           ],

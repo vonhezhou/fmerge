@@ -44,6 +44,7 @@ class CompareSession extends ChangeNotifier {
   TextFile left, right;
   final TextFile? base;
   TextFile? output;
+  String? leftLanguage, rightLanguage, resultLanguage, baseLanguage;
   final bool readOnly;
   MergeLabels mergeLabels;
   late CodeLineEditingController leftEditor, rightEditor;
@@ -78,6 +79,9 @@ class CompareSession extends ChangeNotifier {
     final file = left;
     left = right;
     right = file;
+    final language = leftLanguage;
+    leftLanguage = rightLanguage;
+    rightLanguage = language;
     final controller = leftEditor;
     leftEditor = rightEditor;
     rightEditor = controller;
@@ -159,6 +163,10 @@ class CompareSession extends ChangeNotifier {
   static Future<CompareSession> open(
     LaunchOptions args, {
     TextEncoding? encoding,
+    TextEncoding? leftEncoding,
+    TextEncoding? rightEncoding,
+    TextEncoding? baseEncoding,
+    TextEncoding? outputEncoding,
   }) async {
     if (args.left == null) {
       return CompareSession(
@@ -168,14 +176,18 @@ class CompareSession extends ChangeNotifier {
       );
     }
     final files = await Future.wait([
-      TextFile.read(args.left!, encoding: encoding),
-      TextFile.read(args.right!, encoding: encoding),
-      if (args.base != null) TextFile.read(args.base!, encoding: encoding),
+      TextFile.read(args.left!, encoding: leftEncoding ?? encoding),
+      TextFile.read(args.right!, encoding: rightEncoding ?? encoding),
+      if (args.base != null)
+        TextFile.read(args.base!, encoding: baseEncoding ?? encoding),
     ]);
     TextFile? output;
     if (args.output != null) {
       output = await File(args.output!).exists()
-          ? await TextFile.read(args.output!)
+          ? await TextFile.read(
+              args.output!,
+              encoding: outputEncoding ?? encoding,
+            )
           : (TextFile.empty(
                 args.merge ? files.last.original : files[1].original,
               )

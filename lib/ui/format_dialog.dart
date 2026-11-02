@@ -31,16 +31,7 @@ class _FormatDialogState extends State<FormatDialog> {
             decoration: const InputDecoration(labelText: '编码'),
             items: [
               for (final e in TextEncoding.values)
-                DropdownMenuItem(
-                  value: e,
-                  child: Text(switch (e) {
-                    TextEncoding.utf8 => 'UTF-8',
-                    TextEncoding.utf8Bom => 'UTF-8 with BOM',
-                    TextEncoding.utf16le => 'UTF-16 LE',
-                    TextEncoding.utf16be => 'UTF-16 BE',
-                    TextEncoding.latin1 => 'Latin-1',
-                  }),
-                ),
+                DropdownMenuItem(value: e, child: Text(e.label)),
             ],
             onChanged: (v) => setState(() => encoding = v!),
           ),

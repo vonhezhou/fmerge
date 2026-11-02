@@ -15,6 +15,8 @@ dependencies:
   window_manager: ^0.5.1
   path: ^1.9.1
   crypto: ^3.0.6
+  charset: ^2.0.1
+  dart_big5: ^0.0.5
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -26,6 +26,62 @@ Future<void> ready(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('手选语言不改变编辑内容，左右独立且交换后跟随文件', (tester) async {
+    tester.view.physicalSize = const Size(920, 680);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final session = CompareSession(
+      TextFile.empty('{}')..path = '/left.unknown',
+      TextFile.empty('{}')..path = '/right.json',
+    );
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: session),
+    );
+    await ready(tester);
+    final controller = session.leftEditor;
+    await tester.tap(find.byType(LanguageMenu).first);
+    await tester.pumpAndSettle();
+    final jsonc = find.widgetWithText(CheckedPopupMenuItem<String>, 'JSONC');
+    await tester.ensureVisible(jsonc);
+    await tester.tap(jsonc);
+    await tester.pumpAndSettle();
+    var panes = tester.widgetList<CodePane>(find.byType(CodePane)).toList();
+    expect(panes[0].language, 'jsonc');
+    expect(panes[1].language, 'json');
+    expect(identical(panes[0].controller, controller), true);
+    expect(controller.text, '{}');
+    expect(session.dirty, false);
+    session.swapSides();
+    await ready(tester);
+    panes = tester.widgetList<CodePane>(find.byType(CodePane)).toList();
+    expect(panes[0].language, 'json');
+    expect(panes[1].language, 'jsonc');
+    await tester.tap(find.byType(LanguageMenu).last);
+    await tester.pumpAndSettle();
+    final automatic = find.widgetWithText(
+      CheckedPopupMenuItem<String>,
+      '自动识别（纯文本）',
+    );
+    await tester.ensureVisible(automatic);
+    await tester.tap(automatic);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widgetList<CodePane>(find.byType(CodePane)).last.language,
+      'text',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  test('JSONC、C、C++ 与 Rust 后缀独立识别，未知后缀使用纯文本', () {
+    expect(languageFor('config.JSONC'), 'jsonc');
+    expect(languageFor('config.json'), 'json');
+    expect(languageFor('main.c'), 'c');
+    expect(languageFor('main.cpp'), 'cpp');
+    expect(languageFor('main.cxx'), 'cpp');
+    expect(languageFor('main.rs'), 'rust');
+    expect(languageFor('unknown'), 'text');
+  });
   testWidgets('Git 界面只暂存勾选的块，并可从 Staged 取消暂存', (tester) async {
     tester.view.physicalSize = const Size(920, 680);
     tester.view.devicePixelRatio = 1;

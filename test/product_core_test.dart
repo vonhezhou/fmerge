@@ -9,7 +9,9 @@ import 'package:fmerge/core/merge_session.dart';
 void main() {
   for (final encoding in TextEncoding.values) {
     test('编码与 BOM 可往返 $encoding', () {
-      final text = encoding == TextEncoding.latin1
+      final text = encoding.legacyCodec != null
+          ? 'ASCII\r\n'
+          : encoding == TextEncoding.latin1
           ? 'café\r\n'
           : '中文 👩‍💻\r\n';
       final bytes = TextFile.encode(text, encoding);
@@ -27,6 +29,46 @@ void main() {
       TextFile.empty('a\r\nb\nc\r\n').materialize('a\nB\nc\n'),
       'a\r\nB\nc\r\n',
     );
+  });
+  test('手动编码优先于 BOM，UTF-8 选择可移除匹配 BOM', () {
+    final bytes = TextFile.encode('café', TextEncoding.utf8Bom);
+    expect(TextFile.decode(bytes).$2, TextEncoding.utf8Bom);
+    expect(TextFile.decode(bytes, TextEncoding.utf8), (
+      'café',
+      TextEncoding.utf8,
+    ));
+    expect(TextFile.decode(bytes, TextEncoding.latin1), (
+      'ï»¿cafÃ©',
+      TextEncoding.latin1,
+    ));
+  });
+  test('无 BOM 的 UTF-16 必须手动选择，不猜测无效 UTF-8', () {
+    for (final encoding in [TextEncoding.utf16le, TextEncoding.utf16be]) {
+      final bytes = TextFile.encode('hello 中文', encoding).sublist(2);
+      expect(() => TextFile.decode(bytes), throwsFormatException);
+      expect(TextFile.decode(bytes, encoding), ('hello 中文', encoding));
+    }
+  });
+  test('无 BOM 的 UTF-16 正常保存保留无 BOM，另存可显式添加 BOM', () async {
+    final dir = await Directory.systemTemp.createTemp('fmerge-no-bom-');
+    addTearDown(() => dir.delete(recursive: true));
+    for (final encoding in [TextEncoding.utf16le, TextEncoding.utf16be]) {
+      final disk = File('${dir.path}/${encoding.name}');
+      // U+FFFE 的字节看似另一端序的 BOM，手动选择时仍须作为正文保留。
+      final bytes = TextFile.encode('\ufffehello 中文', encoding).sublist(2);
+      await disk.writeAsBytes(bytes);
+      final file = await TextFile.read(disk.path, encoding: encoding);
+      expect(file.originalBytes(), bytes);
+      await file.save(file.text, backup: false);
+      expect(await disk.readAsBytes(), bytes);
+      await file.save('changed 中文', backup: false);
+      expect(
+        await disk.readAsBytes(),
+        TextFile.encode('changed 中文', encoding).sublist(2),
+      );
+      await file.save(file.text, asEncoding: encoding, backup: false);
+      expect(await disk.readAsBytes(), TextFile.encode('changed 中文', encoding));
+    }
   });
   test('拒绝损坏 UTF-16 与二进制，不用替换字符掩盖编码错误', () {
     expect(() => TextFile.decode([255, 254, 0]), throwsFormatException);

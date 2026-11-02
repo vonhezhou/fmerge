@@ -2,10 +2,39 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fmerge/core/files.dart';
+import 'package:fmerge/core/launch.dart';
 import 'package:fmerge/core/merge.dart';
 import 'package:fmerge/session.dart';
 
 void main() {
+  test('各输入及已有输出分别使用所选编码', () async {
+    final dir = await Directory.systemTemp.createTemp('fmerge-encodings-');
+    addTearDown(() => dir.delete(recursive: true));
+    final left = File('${dir.path}/left')
+      ..writeAsBytesSync(TextFile.encode('café', TextEncoding.latin1));
+    final right = File(
+      '${dir.path}/right',
+    )..writeAsBytesSync(TextFile.encode('右侧', TextEncoding.utf16be).sublist(2));
+    final base = File('${dir.path}/base')..writeAsStringSync('base');
+    final output = File('${dir.path}/out')
+      ..writeAsBytesSync(TextFile.encode('déjà', TextEncoding.latin1));
+    final session = await CompareSession.open(
+      LaunchOptions(
+        left: left.path,
+        right: right.path,
+        base: base.path,
+        output: output.path,
+      ),
+      leftEncoding: TextEncoding.latin1,
+      rightEncoding: TextEncoding.utf16be,
+      outputEncoding: TextEncoding.latin1,
+    );
+    addTearDown(session.dispose);
+    expect(session.left.text, 'café');
+    expect(session.right.text, '右侧');
+    expect(session.base!.text, 'base');
+    expect(session.output!.text, 'déjà');
+  });
   test('保存期间的新输入继续保持未保存，不能误报 Git 合并成功', () async {
     final dir = await Directory.systemTemp.createTemp('fmerge-concurrent-');
     addTearDown(() => dir.delete(recursive: true));

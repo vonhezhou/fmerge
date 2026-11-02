@@ -8,6 +8,7 @@ import 'package:re_highlight/languages/json.dart';
 import 'package:re_highlight/languages/python.dart';
 import 'package:re_highlight/languages/typescript.dart';
 import 'package:re_highlight/languages/cpp.dart';
+import 'package:re_highlight/languages/c.dart';
 import 'package:re_highlight/languages/java.dart';
 import 'package:re_highlight/languages/go.dart';
 import 'package:re_highlight/languages/rust.dart';
@@ -24,10 +25,12 @@ import '../core/settings.dart';
 
 String languageFor(String name) => switch (name.split('.').last.toLowerCase()) {
   'dart' => 'dart',
-  'json' || 'jsonc' => 'json',
+  'json' => 'json',
+  'jsonc' => 'jsonc',
   'py' => 'python',
   'ts' || 'tsx' || 'js' || 'jsx' => 'typescript',
-  'c' || 'cc' || 'cpp' || 'h' || 'hpp' => 'cpp',
+  'c' || 'h' => 'c',
+  'cc' || 'cpp' || 'cxx' || 'hh' || 'hpp' || 'hxx' => 'cpp',
   'java' || 'kt' => 'java',
   'go' => 'go',
   'rs' => 'rust',
@@ -42,9 +45,12 @@ String languageFor(String name) => switch (name.split('.').last.toLowerCase()) {
 final Map<String, Mode> _languages = {
   'dart': langDart,
   'json': langJson,
+  // re_highlight 的 JSON 规则已包含行注释和块注释。
+  'jsonc': langJson,
   'python': langPython,
   'typescript': langTypescript,
   'cpp': langCpp,
+  'c': langC,
   'java': langJava,
   'go': langGo,
   'rust': langRust,
@@ -55,6 +61,80 @@ final Map<String, Mode> _languages = {
   'sql': langSql,
   'markdown': langMarkdown,
 };
+
+const languageLabels = {
+  'text': '纯文本',
+  'json': 'JSON',
+  'jsonc': 'JSONC',
+  'c': 'C',
+  'cpp': 'C++',
+  'rust': 'Rust',
+  'dart': 'Dart',
+  'python': 'Python',
+  'typescript': 'JavaScript / TypeScript',
+  'java': 'Java / Kotlin',
+  'go': 'Go',
+  'bash': 'Shell',
+  'yaml': 'YAML',
+  'xml': 'XML / HTML',
+  'css': 'CSS / SCSS',
+  'sql': 'SQL',
+  'markdown': 'Markdown',
+};
+
+class LanguageMenu extends StatelessWidget {
+  const LanguageMenu({
+    super.key,
+    required this.name,
+    required this.value,
+    required this.onChanged,
+  });
+  final String name;
+  final String? value;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final detected = languageFor(name);
+    final label = languageLabels[value ?? detected] ?? '纯文本';
+    return PopupMenuButton<String>(
+      tooltip: '选择语言或格式（仅影响语法高亮）',
+      initialValue: value ?? 'auto',
+      onSelected: (value) => onChanged(value == 'auto' ? null : value),
+      itemBuilder: (_) => [
+        CheckedPopupMenuItem(
+          value: 'auto',
+          checked: value == null,
+          child: Text('自动识别（${languageLabels[detected]}）'),
+        ),
+        const PopupMenuDivider(),
+        for (final entry in languageLabels.entries)
+          CheckedPopupMenuItem(
+            value: entry.key,
+            checked: value == entry.key,
+            child: Text(entry.value),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 95),
+              child: Text(
+                value == null ? '自动 · $label' : label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: muted),
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down, size: 16, color: muted),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class CodePane extends StatefulWidget {
   const CodePane({

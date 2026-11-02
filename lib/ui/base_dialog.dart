@@ -6,9 +6,17 @@ import '../core/settings.dart';
 import 'code_pane.dart';
 
 class BaseDialog extends StatefulWidget {
-  const BaseDialog({super.key, required this.file, required this.settings});
+  const BaseDialog({
+    super.key,
+    required this.file,
+    required this.settings,
+    this.language,
+    this.onLanguageChanged,
+  });
   final TextFile file;
   final Settings settings;
+  final String? language;
+  final ValueChanged<String?>? onLanguageChanged;
   @override
   State<BaseDialog> createState() => _BaseDialogState();
 }
@@ -17,6 +25,7 @@ class _BaseDialogState extends State<BaseDialog> {
   late final controller = CodeLineEditingController.fromText(widget.file.text);
   late final find = CodeFindController(controller);
   final focus = FocusNode(), scroll = CodeScrollController();
+  late String? language = widget.language;
   @override
   void dispose() {
     controller.dispose();
@@ -38,9 +47,22 @@ class _BaseDialogState extends State<BaseDialog> {
           ListTile(
             title: const Text('共同祖先 · Base'),
             subtitle: Text(widget.file.path ?? '未命名'),
-            trailing: IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LanguageMenu(
+                  name: widget.file.name,
+                  value: language,
+                  onChanged: (value) {
+                    setState(() => language = value);
+                    widget.onLanguageChanged?.call(value);
+                  },
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -49,7 +71,7 @@ class _BaseDialogState extends State<BaseDialog> {
               settings: widget.settings,
               focus: focus,
               scroll: scroll,
-              language: languageFor(widget.file.name),
+              language: language ?? languageFor(widget.file.name),
               readOnly: true,
               find: find,
             ),

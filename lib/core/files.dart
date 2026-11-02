@@ -6,8 +6,9 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'myers.dart';
-
-enum TextEncoding { utf8, utf8Bom, utf16le, utf16be, latin1 }
+import 'strict_codec.dart';
+import 'text_encoding.dart';
+export 'text_encoding.dart';
 
 class FileConflict implements Exception {
   const FileConflict(this.path);
@@ -25,6 +26,8 @@ class TextFile {
   TextEncoding encoding;
   String? digest;
   String? _resolvedPath;
+  bool _utf16Bom = true;
+  List<int> originalBytes() => encode(original, encoding, utf16Bom: _utf16Bom);
   String get text => normalize(original);
   String get name => path == null ? '未命名' : p.basename(path!);
   String get eol {
@@ -47,33 +50,56 @@ class TextFile {
       throw const FormatException('文本文件超过 32 MiB，暂不支持打开');
     }
     final bytes = await file.readAsBytes();
-    final decoded = decode(bytes, encoding);
+    final (String, TextEncoding) decoded;
+    try {
+      decoded = decode(bytes, encoding);
+    } on FormatException catch (error) {
+      throw FormatException('$path：${error.message}');
+    }
     return TextFile._(
-      file.absolute.path,
-      decoded.$1,
-      decoded.$2,
-      sha256.convert(bytes).toString(),
-    ).._resolvedPath = await file.resolveSymbolicLinks();
+        file.absolute.path,
+        decoded.$1,
+        decoded.$2,
+        sha256.convert(bytes).toString(),
+      )
+      .._resolvedPath = await file.resolveSymbolicLinks()
+      .._utf16Bom =
+          bytes.length >= 2 &&
+          (decoded.$2 == TextEncoding.utf16le &&
+                  bytes[0] == 255 &&
+                  bytes[1] == 254 ||
+              decoded.$2 == TextEncoding.utf16be &&
+                  bytes[0] == 254 &&
+                  bytes[1] == 255);
   }
 
   static (String, TextEncoding) decode(
     List<int> bytes, [
     TextEncoding? requested,
   ]) {
-    var encoding = requested ?? TextEncoding.utf8, skip = 0;
+    TextEncoding? detected;
+    var bomLength = 0;
     if (bytes.length >= 3 &&
         bytes[0] == 239 &&
         bytes[1] == 187 &&
         bytes[2] == 191) {
-      encoding = TextEncoding.utf8Bom;
-      skip = 3;
+      detected = TextEncoding.utf8Bom;
+      bomLength = 3;
     } else if (bytes.length >= 2 && bytes[0] == 255 && bytes[1] == 254) {
-      encoding = TextEncoding.utf16le;
-      skip = 2;
+      detected = TextEncoding.utf16le;
+      bomLength = 2;
     } else if (bytes.length >= 2 && bytes[0] == 254 && bytes[1] == 255) {
-      encoding = TextEncoding.utf16be;
-      skip = 2;
+      detected = TextEncoding.utf16be;
+      bomLength = 2;
     }
+    final encoding = requested ?? detected ?? TextEncoding.utf8;
+    // 手动选择优先；只移除与所选编码相符的 BOM。
+    final skip =
+        requested == null ||
+            requested == detected ||
+            requested == TextEncoding.utf8 && detected == TextEncoding.utf8Bom
+        ? bomLength
+        : 0;
     final body = bytes.sublist(skip);
     String text;
     if (encoding == TextEncoding.utf16le || encoding == TextEncoding.utf16be) {
@@ -97,7 +123,10 @@ class TextFile {
       }
       text = String.fromCharCodes(units);
     } else {
-      text = encoding == TextEncoding.latin1
+      final codec = encoding.legacyCodec;
+      text = codec != null
+          ? decodeLosslessly(codec, body)
+          : encoding == TextEncoding.latin1
           ? latin1.decode(body)
           : utf8.decode(body);
     }
@@ -105,7 +134,11 @@ class TextFile {
     return (text, encoding);
   }
 
-  static List<int> encode(String text, TextEncoding encoding) {
+  static List<int> encode(
+    String text,
+    TextEncoding encoding, {
+    bool utf16Bom = true,
+  }) {
     final units = text.codeUnits;
     for (var i = 0; i < units.length; i++) {
       if (units[i] >= 0xd800 && units[i] <= 0xdbff) {
@@ -121,15 +154,14 @@ class TextFile {
       TextEncoding.utf8Bom => [239, 187, 191, ...utf8.encode(text)],
       TextEncoding.latin1 => latin1.encode(text),
       TextEncoding.utf16le => [
-        255,
-        254,
+        if (utf16Bom) ...[255, 254],
         for (final u in text.codeUnits) ...[u & 255, u >> 8],
       ],
       TextEncoding.utf16be => [
-        254,
-        255,
+        if (utf16Bom) ...[254, 255],
         for (final u in text.codeUnits) ...[u >> 8, u & 255],
       ],
+      _ => encodeLosslessly(encoding.legacyCodec!, text),
     };
   }
 
@@ -219,7 +251,8 @@ class TextFile {
     }
     final raw = materialize(edited, forcedEol: forcedEol);
     final selectedEncoding = asEncoding ?? encoding;
-    final bytes = encode(raw, selectedEncoding);
+    final utf16Bom = asEncoding != null || _utf16Bom;
+    final bytes = encode(raw, selectedEncoding, utf16Bom: utf16Bom);
     // 同目录临时文件 + rename；失败不破坏原文件。
     final temp = File(
       p.join(
@@ -256,6 +289,7 @@ class TextFile {
       _resolvedPath = target.absolute.path;
       original = raw;
       encoding = selectedEncoding;
+      _utf16Bom = utf16Bom;
       digest = sha256.convert(bytes).toString();
     } finally {
       if (await temp.exists()) await temp.delete();

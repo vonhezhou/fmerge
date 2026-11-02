@@ -43,6 +43,8 @@ THE SOFTWARE.
 - re_highlight：https://github.com/reqable/re-highlight （MIT）
 - characters：https://pub.dev/packages/characters （BSD-3-Clause）
 - file_selector：https://pub.dev/packages/file_selector （BSD-3-Clause）
+- charset：https://pub.dev/packages/charset （Apache-2.0）
+- dart_big5：https://pub.dev/packages/dart_big5 （BSD-3-Clause；包中另有字表来源声明，随包保留）
 
 file_selector 的依赖元数据包含 Web 平台实现；本项目只使用原生桌面 runner，未使用 WebView、Electron 或浏览器编辑器。
 

@@ -22,7 +22,7 @@ class _OpenDialogState extends State<OpenDialog> {
       base = TextEditingController(),
       output = TextEditingController();
   String? error;
-  TextEncoding? inputEncoding;
+  final encodings = <TextEditingController, TextEncoding?>{};
   bool busy = false;
   @override
   void dispose() {
@@ -99,7 +99,10 @@ class _OpenDialogState extends State<OpenDialog> {
           base: merge ? base.text.trim() : null,
           output: output.text.trim().isEmpty ? null : output.text.trim(),
         ),
-        encoding: inputEncoding,
+        leftEncoding: encodings[left],
+        rightEncoding: encodings[right],
+        baseEncoding: encodings[base],
+        outputEncoding: encodings[output],
       );
       if (!mounted) {
         session.dispose();
@@ -152,6 +155,9 @@ class _OpenDialogState extends State<OpenDialog> {
                           final path = left.text;
                           left.text = right.text;
                           right.text = path;
+                          final encoding = encodings[left];
+                          encodings[left] = encodings[right];
+                          encodings[right] = encoding;
                         }),
                   icon: const Icon(Icons.swap_horiz),
                   label: const Text('交换左右'),
@@ -162,24 +168,10 @@ class _OpenDialogState extends State<OpenDialog> {
             field(merge ? '左侧输入 · --local' : '左侧 · 原始文件', left),
             field(merge ? '右侧输入 · --remote' : '右侧 · 修改文件', right),
             field('输出位置（可留空，保存时选择）', output, save: true),
-            DropdownButton<TextEncoding?>(
-              hint: const Text('编码：自动识别 UTF-8 / UTF-16'),
-              value: inputEncoding,
-              isExpanded: true,
-              items: const [
-                DropdownMenuItem(
-                  value: null,
-                  child: Text('编码：自动识别 UTF-8 / UTF-16'),
-                ),
-                DropdownMenuItem(
-                  value: TextEncoding.latin1,
-                  child: Text('编码：Latin-1（旧式西文文件）'),
-                ),
-              ],
-              onChanged: busy ? null : (v) => setState(() => inputEncoding = v),
-            ),
             const Text(
-              '原文件仅在你保存时写入；无法识别的编码会报错，不会替换字符。',
+              '编码可逐文件选择。自动：按 BOM 识别 UTF-8 / UTF-16，无 BOM 按 UTF-8。\n'
+              '旧编码请手动选择；不能无损转换时会报错。GB18030 请先转为 UTF-8。\n'
+              '原文件仅在保存时写入。',
               style: TextStyle(color: muted, fontSize: 12),
             ),
             if (error != null)
@@ -223,6 +215,27 @@ class _OpenDialogState extends State<OpenDialog> {
           tooltip: save ? '选择输出位置' : '选择文件',
           onPressed: busy ? null : () => browse(controller, save: save),
           icon: const Icon(Icons.folder_open_outlined, size: 20),
+        ),
+        SizedBox(
+          width: 155,
+          child: DropdownButtonFormField<TextEncoding?>(
+            key: ValueKey((controller, encodings[controller])),
+            initialValue: encodings[controller],
+            decoration: InputDecoration(labelText: save ? '已有输出编码' : '读取编码'),
+            isExpanded: true,
+            style: const TextStyle(fontSize: 12, color: Colors.white),
+            items: [
+              const DropdownMenuItem(
+                value: null,
+                child: Text('自动（BOM / UTF-8）'),
+              ),
+              for (final encoding in TextEncoding.values)
+                DropdownMenuItem(value: encoding, child: Text(encoding.label)),
+            ],
+            onChanged: busy
+                ? null
+                : (value) => setState(() => encodings[controller] = value),
+          ),
         ),
       ],
     ),
