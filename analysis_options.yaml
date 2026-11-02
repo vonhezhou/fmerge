@@ -1,0 +1,9 @@
+include: package:flutter_lints/flutter.yaml
+analyzer:
+  exclude:
+    - poc/**
+    - packages/re_editor/**
+    - build/**
+    - windows/**
+    - macos/**
+    - linux/**

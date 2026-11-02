@@ -1,0 +1,27 @@
+name: fmerge
+description: Native desktop file comparison and three-way merge.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: ^3.13.7
+dependencies:
+  flutter:
+    sdk: flutter
+  re_editor:
+    path: packages/re_editor
+  re_highlight: ^0.0.3
+  characters: ^1.4.1
+  file_selector: ^1.1.0
+  window_manager: ^0.5.1
+  path: ^1.9.1
+  crypto: ^3.0.6
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true
+  assets:
+    - THIRD_PARTY_NOTICES.md

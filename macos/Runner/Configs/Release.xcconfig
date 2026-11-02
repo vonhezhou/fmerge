@@ -1,0 +1,5 @@
+#include "../../Flutter/Flutter-Release.xcconfig"
+#include "Warnings.xcconfig"
+
+// 本地 Release 不注入调试器附加权限；保留显式配置的文件沙盒。
+CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO

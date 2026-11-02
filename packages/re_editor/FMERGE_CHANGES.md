@@ -1,0 +1,13 @@
+# fmerge 编辑器扩展
+
+上游：reqable/re-editor，pub.dev 0.10.0，保留 MIT LICENSE。
+
+保持原始包文件结构与风格，不批量格式化上游源码。
+
+- code_diff.dart：CodeDiffLayout / CodeDiffRange，独立的文档行→显示行映射、整行背景、行内装饰和空白显示。
+- code_line.dart / _code_line.dart：控制器公开布局属性，代理转发；绑定编辑视图时仅通知代理自身的监听者，不在布局阶段通知外部文档观察者。
+- _code_editable.dart / _code_field.dart：布局传递；固定行高、无折叠无自动换行的 Diff 渲染；二分定位可见行；离屏跳转使用真实显示坐标；占位映射到邻近真实行。
+
+文档、剪贴板、输入法、选择与撤销仍使用上游真实文本模型，虚拟占位不进入字符串。
+
+验收入口：test/editable_diff_test.dart、test/workbench_test.dart 与 integration_test/desktop_test.dart。自动换行、折叠、极长行及 IME 的进一步人工验收不能由这些基础用例替代。

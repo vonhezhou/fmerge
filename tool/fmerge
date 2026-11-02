@@ -1,0 +1,12 @@
+#!/bin/sh
+# 直接运行原生进程，Git 会等待窗口关闭并取得真正的退出码。
+set -eu
+FMERGE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -n "${FMERGE_BINARY:-}" ]; then
+  exec "$FMERGE_BINARY" "$@"
+fi
+case "$(uname -s)" in
+  Darwin) exec "$FMERGE_ROOT/build/macos/Build/Products/Release/fmerge.app/Contents/MacOS/fmerge" "$@" ;;
+  Linux) exec "$FMERGE_ROOT/build/linux/x64/release/bundle/fmerge" "$@" ;;
+  *) echo '请设置 FMERGE_BINARY 为本平台的 fmerge 可执行文件路径。' >&2; exit 64 ;;
+esac

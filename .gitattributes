@@ -1,0 +1,9 @@
+*.dart text eol=lf
+*.swift text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+tool/fmerge text eol=lf
+*.png -text
+*.ico -text
