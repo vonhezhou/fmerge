@@ -23,6 +23,7 @@ import 'git_dialog.dart';
 import 'settings_dialog.dart';
 import 'format_dialog.dart';
 import 'base_dialog.dart';
+import 'welcome_view.dart';
 
 class Workbench extends StatefulWidget {
   const Workbench({
@@ -721,7 +722,27 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   () => setState(() => _diskChanged = false),
                   action: _reload,
                 ),
-              Expanded(child: session == null ? _welcome() : _workspace()),
+              Expanded(
+                child: session == null
+                    ? _welcome()
+                    : Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: panel,
+                            border: Border.all(color: border),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(1),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(9),
+                              child: _workspace(),
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
               _status(),
             ],
           ),
@@ -887,9 +908,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   }
 
   Widget _header() => Container(
-    height: 58,
+    height: 64,
     padding: const EdgeInsets.symmetric(horizontal: 18),
     decoration: const BoxDecoration(
+      color: panel,
       border: Border(bottom: BorderSide(color: border)),
     ),
     child: Row(
@@ -927,6 +949,12 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             size: 17,
           ),
           label: const Text('保存'),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: '设置',
+          onPressed: _settings,
+          icon: const Icon(Icons.tune, size: 19),
         ),
         PopupMenuButton<String>(
           tooltip: '更多操作',
@@ -970,153 +998,165 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         color: bg,
         border: Border(bottom: BorderSide(color: border)),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(
-          width: 1020,
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: '撤销',
-                onPressed: s.readOnly ? null : _undo,
-                icon: const Icon(Icons.undo, size: 18),
-              ),
-              IconButton(
-                tooltip: '重做',
-                onPressed: s.readOnly ? null : _redo,
-                icon: const Icon(Icons.redo, size: 18),
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                tooltip: '查找 / 替换',
-                onPressed: () => finder?.findMode(),
-                icon: const Icon(Icons.search, size: 18),
-              ),
-              IconButton(
-                tooltip: s.showWhitespace ? '隐藏空白字符' : '显示空白字符',
-                onPressed: () {
-                  settings.showWhitespace = !settings.showWhitespace;
-                  s.showWhitespace = settings.showWhitespace;
-                  s.updateResultLayout();
-                  s.refresh(settings.comparison);
-                  _saveSettings();
-                },
-                icon: Icon(
-                  Icons.space_bar,
-                  size: 18,
-                  color: s.showWhitespace ? accent : muted,
-                ),
-              ),
-              IconButton(
-                tooltip: settings.whitespace == WhitespaceMode.exact
-                    ? '隐藏空白字符差异'
-                    : '显示空白字符差异',
-                onPressed: _toggleWhitespace,
-                icon: Icon(
-                  Icons.format_clear,
-                  size: 18,
-                  color: settings.whitespace != WhitespaceMode.exact
-                      ? accent
-                      : muted,
-                ),
-              ),
-              IconButton(
-                tooltip: s.contextOnly ? '显示整个文件' : '仅显示差异及前后 3 行',
-                onPressed: s.isMerge || s.busy
-                    ? null
-                    : () => s.setContextOnly(!s.contextOnly),
-                icon: Icon(
-                  s.contextOnly ? Icons.unfold_more : Icons.unfold_less,
-                  size: 18,
-                  color: s.contextOnly ? accent : muted,
-                ),
-              ),
-              IconButton(
-                tooltip: s.output != null ? '指定输出位置时不能交换左右' : '交换左右文件',
-                onPressed: s.isMerge || s.output != null || s.busy || _saving
-                    ? null
-                    : _swapSides,
-                icon: const Icon(Icons.swap_horiz, size: 18),
-              ),
-              IconButton(
-                tooltip: 'Git · 按块暂存 / 取消暂存',
-                onPressed: _saving || s.readOnly ? null : _git,
-                icon: const Icon(Icons.account_tree_outlined, size: 18),
-              ),
-              const VerticalDivider(indent: 12, endIndent: 12),
-              IconButton(
-                tooltip: '上一处差异 · Shift F7',
-                onPressed: () => _navigate(-1),
-                icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-              ),
-              Text(
-                d == null
-                    ? '正在比较…'
-                    : s.hunkRows.isEmpty
-                    ? '文件相同'
-                    : '${_hunk + 1} / ${s.hunkRows.length} 处差异',
-                style: const TextStyle(color: muted, fontSize: 12),
-              ),
-              IconButton(
-                tooltip: '下一处差异 · F7',
-                onPressed: () => _navigate(1),
-                icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-              ),
-              if (!s.isMerge) ...[
-                IconButton(
-                  tooltip: '使用左侧差异块',
-                  onPressed:
-                      s.readOnly || s.busy || d == null || d.changes.isEmpty
-                      ? null
-                      : () => s.applyHunk(_hunk),
-                  icon: const Icon(
-                    Icons.arrow_forward,
-                    color: accent,
-                    size: 19,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: IntrinsicWidth(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: '撤销',
+                    onPressed: s.readOnly ? null : _undo,
+                    icon: const Icon(Icons.undo, size: 18),
                   ),
-                ),
-                PopupMenuButton<int>(
-                  tooltip: '组合当前差异块',
-                  onSelected: (v) => s.applyHunk(_hunk, combine: v),
-                  enabled:
-                      !s.readOnly && !s.busy && d?.changes.isNotEmpty == true,
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 1, child: Text('左侧在前，右侧在后')),
-                    PopupMenuItem(value: 2, child: Text('右侧在前，左侧在后')),
+                  IconButton(
+                    tooltip: '重做',
+                    onPressed: s.readOnly ? null : _redo,
+                    icon: const Icon(Icons.redo, size: 18),
+                  ),
+                  const VerticalDivider(width: 16, indent: 12, endIndent: 12),
+                  IconButton(
+                    tooltip: '查找 / 替换',
+                    onPressed: () => finder?.findMode(),
+                    icon: const Icon(Icons.search, size: 18),
+                  ),
+                  IconButton(
+                    tooltip: s.showWhitespace ? '隐藏空白字符' : '显示空白字符',
+                    onPressed: () {
+                      settings.showWhitespace = !settings.showWhitespace;
+                      s.showWhitespace = settings.showWhitespace;
+                      s.updateResultLayout();
+                      s.refresh(settings.comparison);
+                      _saveSettings();
+                    },
+                    icon: Icon(
+                      Icons.space_bar,
+                      size: 18,
+                      color: s.showWhitespace ? accent : muted,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: settings.whitespace == WhitespaceMode.exact
+                        ? '隐藏空白字符差异'
+                        : '显示空白字符差异',
+                    onPressed: _toggleWhitespace,
+                    icon: Icon(
+                      Icons.format_clear,
+                      size: 18,
+                      color: settings.whitespace != WhitespaceMode.exact
+                          ? accent
+                          : muted,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: s.contextOnly ? '显示整个文件' : '仅显示差异及前后 3 行',
+                    onPressed: s.isMerge || s.busy
+                        ? null
+                        : () => s.setContextOnly(!s.contextOnly),
+                    icon: Icon(
+                      s.contextOnly ? Icons.unfold_more : Icons.unfold_less,
+                      size: 18,
+                      color: s.contextOnly ? accent : muted,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: s.output != null ? '指定输出位置时不能交换左右' : '交换左右文件',
+                    onPressed:
+                        s.isMerge || s.output != null || s.busy || _saving
+                        ? null
+                        : _swapSides,
+                    icon: const Icon(Icons.swap_horiz, size: 18),
+                  ),
+                  IconButton(
+                    tooltip: 'Git · 按块暂存 / 取消暂存',
+                    onPressed: _saving || s.readOnly ? null : _git,
+                    icon: const Icon(Icons.account_tree_outlined, size: 18),
+                  ),
+                  const VerticalDivider(indent: 12, endIndent: 12),
+                  IconButton(
+                    tooltip: '上一处差异 · Shift F7',
+                    onPressed: () => _navigate(-1),
+                    icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+                  ),
+                  Text(
+                    d == null
+                        ? '正在比较…'
+                        : s.hunkRows.isEmpty
+                        ? '文件相同'
+                        : '${_hunk + 1} / ${s.hunkRows.length} 处差异',
+                    style: const TextStyle(color: muted, fontSize: 12),
+                  ),
+                  IconButton(
+                    tooltip: '下一处差异 · F7',
+                    onPressed: () => _navigate(1),
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+                  ),
+                  if (!s.isMerge) ...[
+                    IconButton(
+                      tooltip: '使用左侧差异块',
+                      onPressed:
+                          s.readOnly || s.busy || d == null || d.changes.isEmpty
+                          ? null
+                          : () => s.applyHunk(_hunk),
+                      icon: const Icon(
+                        Icons.arrow_forward,
+                        color: accent,
+                        size: 19,
+                      ),
+                    ),
+                    PopupMenuButton<int>(
+                      tooltip: '组合当前差异块',
+                      onSelected: (v) => s.applyHunk(_hunk, combine: v),
+                      enabled:
+                          !s.readOnly &&
+                          !s.busy &&
+                          d?.changes.isNotEmpty == true,
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 1, child: Text('左侧在前，右侧在后')),
+                        PopupMenuItem(value: 2, child: Text('右侧在前，左侧在后')),
+                      ],
+                      icon: const Icon(
+                        Icons.playlist_add,
+                        size: 19,
+                        color: muted,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: s.readOnly
+                          ? null
+                          : () =>
+                                setState(() => _leftEditable = !_leftEditable),
+                      icon: Icon(
+                        _leftEditable ? Icons.lock_open : Icons.lock_outline,
+                        size: 14,
+                      ),
+                      label: Text(
+                        _leftEditable ? '左侧可编辑' : '启用左侧编辑',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ] else ...[
+                    const Spacer(),
+                    _tag(
+                      s.pending > 0 ? '${s.pending} 处冲突待确认' : '全部冲突已处理',
+                      s.pending > 0 ? amber : green,
+                    ),
                   ],
-                  icon: const Icon(Icons.playlist_add, size: 19, color: muted),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: s.readOnly
-                      ? null
-                      : () => setState(() => _leftEditable = !_leftEditable),
-                  icon: Icon(
-                    _leftEditable ? Icons.lock_open : Icons.lock_outline,
-                    size: 14,
-                  ),
-                  label: Text(
-                    _leftEditable ? '左侧可编辑' : '启用左侧编辑',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                ),
-              ] else ...[
-                const Spacer(),
-                _tag(
-                  s.pending > 0 ? '${s.pending} 处冲突待确认' : '全部冲突已处理',
-                  s.pending > 0 ? amber : green,
-                ),
-              ],
-              if (s.busy)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: SizedBox(
-                    width: 13,
-                    height: 13,
-                    child: CircularProgressIndicator(strokeWidth: 1.5),
-                  ),
-                ),
-            ],
+                  if (s.busy)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: SizedBox(
+                        width: 13,
+                        height: 13,
+                        child: CircularProgressIndicator(strokeWidth: 1.5),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -1204,11 +1244,17 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   }) => Column(
     children: [
       Container(
-        height: 36,
+        height: 42,
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: const BoxDecoration(
-          color: elevated,
-          border: Border(bottom: BorderSide(color: border)),
+        decoration: BoxDecoration(
+          color: _active == side ? elevated : panel,
+          border: Border(
+            top: BorderSide(
+              color: _active == side ? accent : Colors.transparent,
+              width: 2,
+            ),
+            bottom: const BorderSide(color: border),
+          ),
         ),
         child: Row(
           children: [
@@ -1506,85 +1552,19 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       onLanguageChanged: (value) => session!.baseLanguage = value,
     ),
   );
-  Widget _welcome() => Center(
-    child: SingleChildScrollView(
-      child: SizedBox(
-        width: 620,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.difference_outlined, size: 44, color: accent),
-            const SizedBox(height: 20),
-            const Text(
-              '看清每一次修改',
-              style: TextStyle(fontSize: 30, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              '比较文本，逐块采用修改，完成三方合并。',
-              style: TextStyle(color: muted, fontSize: 15),
-            ),
-            const SizedBox(height: 26),
-            Row(
-              children: [
-                FilledButton.icon(
-                  onPressed: () => _open(),
-                  icon: const Icon(Icons.compare_arrows),
-                  label: const Text('打开两个文件'),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _open(merge: true),
-                  icon: const Icon(Icons.merge),
-                  label: const Text('打开三方合并'),
-                ),
-                const SizedBox(width: 12),
-                TextButton(
-                  onPressed: () {
-                    if (session == null) {
-                      setState(
-                        () => _attach(
-                          CompareSession(TextFile.empty(), TextFile.empty()),
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('粘贴文本比较'),
-                ),
-              ],
-            ),
-            if (settings.recent.isNotEmpty) ...[
-              const SizedBox(height: 32),
-              const Text('最近打开', style: TextStyle(fontSize: 12, color: muted)),
-              const SizedBox(height: 8),
-              for (final r in settings.recent.take(6))
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  leading: Icon(
-                    r['base'] == null ? Icons.compare_arrows : Icons.merge,
-                    color: muted,
-                    size: 19,
-                  ),
-                  title: Text(
-                    '${r['left']}  ↔  ${r['right']}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  onTap: () => _open(
-                    options: LaunchOptions(
-                      left: r['left'],
-                      right: r['right'],
-                      base: r['base'],
-                      output: r['output'],
-                    ),
-                  ),
-                ),
-            ],
-          ],
-        ),
+  Widget _welcome() => WelcomeView(
+    onCompare: () => _open(),
+    onMerge: () => _open(merge: true),
+    onPaste: () => setState(
+      () => _attach(CompareSession(TextFile.empty(), TextFile.empty())),
+    ),
+    recent: settings.recent,
+    onRecent: (r) => _open(
+      options: LaunchOptions(
+        left: r['left'],
+        right: r['right'],
+        base: r['base'],
+        output: r['output'],
       ),
     ),
   );
@@ -1598,8 +1578,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         ? s.output
         : s.right;
     return Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: border)),
       ),
@@ -1657,7 +1637,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
     decoration: BoxDecoration(
       color: color.withValues(alpha: .12),
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(6),
     ),
     child: Text(text, style: TextStyle(color: color, fontSize: 10)),
   );

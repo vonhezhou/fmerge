@@ -9,6 +9,7 @@ import 'core/settings.dart';
 import 'session.dart';
 import 'ui/workbench.dart';
 import 'palette.dart';
+import 'ui/app_theme.dart';
 
 Future<void> main(List<String> args) async {
   LaunchOptions options;
@@ -98,35 +99,7 @@ class FmergeApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'fmerge',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      brightness: Brightness.dark,
-      useMaterial3: true,
-      scaffoldBackgroundColor: bg,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: accent,
-        brightness: Brightness.dark,
-        surface: panel,
-      ),
-      fontFamily: Platform.isMacOS ? 'PingFang SC' : null,
-      dividerColor: border,
-      snackBarTheme: const SnackBarThemeData(
-        backgroundColor: elevated,
-        contentTextStyle: TextStyle(color: ink),
-      ),
-      tooltipTheme: const TooltipThemeData(
-        waitDuration: Duration(milliseconds: 500),
-      ),
-      iconButtonTheme: IconButtonThemeData(
-        style: IconButton.styleFrom(foregroundColor: muted),
-      ),
-      inputDecorationTheme: const InputDecorationTheme(
-        isDense: true,
-        border: OutlineInputBorder(),
-      ),
-      textTheme: const TextTheme(
-        bodyMedium: TextStyle(fontSize: 13, color: ink),
-      ),
-    ),
+    theme: buildAppTheme(),
     home: Workbench(
       initial: initial,
       settings: settings,

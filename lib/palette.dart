@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
-const bg = Color(0xff11151c);
-const panel = Color(0xff171c25);
-const elevated = Color(0xff1e2530);
-const border = Color(0xff2a3341);
-const muted = Color(0xff8f9bad);
-const ink = Color(0xffd9e2ee);
-const accent = Color(0xff98c5ff);
+const bg = Color(0xff101318);
+const panel = Color(0xff161b22);
+const elevated = Color(0xff202731);
+const border = Color(0xff303946);
+const muted = Color(0xff9aa8ba);
+const ink = Color(0xffe4eaf2);
+const accent = Color(0xff91bcff);
 const green = Color(0xff8cdbac);
 const red = Color(0xfff3a0a0);
 const amber = Color(0xffe8c587);

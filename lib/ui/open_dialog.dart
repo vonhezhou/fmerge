@@ -131,8 +131,16 @@ class _OpenDialogState extends State<OpenDialog> {
           children: [
             SegmentedButton<bool>(
               segments: const [
-                ButtonSegment(value: false, label: Text('文件比较')),
-                ButtonSegment(value: true, label: Text('三方合并')),
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.compare_arrows, size: 18),
+                  label: Text('文件比较'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.merge, size: 18),
+                  label: Text('三方合并'),
+                ),
               ],
               selected: {merge},
               onSelectionChanged: busy
@@ -168,11 +176,19 @@ class _OpenDialogState extends State<OpenDialog> {
             field(merge ? '左侧输入 · --local' : '左侧 · 原始文件', left),
             field(merge ? '右侧输入 · --remote' : '右侧 · 修改文件', right),
             field('输出位置（可留空，保存时选择）', output, save: true),
-            const Text(
-              '编码可逐文件选择。自动：按 BOM 识别 UTF-8 / UTF-16，无 BOM 按 UTF-8。\n'
-              '旧编码请手动选择；不能无损转换时会报错。GB18030 请先转为 UTF-8。\n'
-              '原文件仅在保存时写入。',
-              style: TextStyle(color: muted, fontSize: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                '编码可逐文件选择。自动：按 BOM 识别 UTF-8 / UTF-16，无 BOM 按 UTF-8。\n'
+                '旧编码请手动选择；不能无损转换时会报错。GB18030 请先转为 UTF-8。\n'
+                '原文件仅在保存时写入。',
+                style: TextStyle(color: muted, fontSize: 12, height: 1.6),
+              ),
             ),
             if (error != null)
               Padding(
@@ -217,7 +233,7 @@ class _OpenDialogState extends State<OpenDialog> {
           icon: const Icon(Icons.folder_open_outlined, size: 20),
         ),
         SizedBox(
-          width: 155,
+          width: 180,
           child: DropdownButtonFormField<TextEncoding?>(
             key: ValueKey((controller, encodings[controller])),
             initialValue: encodings[controller],
@@ -227,10 +243,21 @@ class _OpenDialogState extends State<OpenDialog> {
             items: [
               const DropdownMenuItem(
                 value: null,
-                child: Text('自动（BOM / UTF-8）'),
+                child: Text(
+                  '自动（BOM / UTF-8）',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               for (final encoding in TextEncoding.values)
-                DropdownMenuItem(value: encoding, child: Text(encoding.label)),
+                DropdownMenuItem(
+                  value: encoding,
+                  child: Text(
+                    encoding.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
             ],
             onChanged: busy
                 ? null
