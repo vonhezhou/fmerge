@@ -12,6 +12,7 @@ import 'package:fmerge/main.dart';
 import 'package:fmerge/session.dart';
 import 'package:fmerge/core/files.dart';
 import 'package:fmerge/core/git.dart';
+import 'package:fmerge/core/merge_labels.dart';
 import 'package:fmerge/core/launch.dart';
 import 'package:fmerge/core/settings.dart';
 import 'package:fmerge/ui/code_pane.dart';
@@ -189,12 +190,12 @@ void main() {
     expect(find.text('有尚未保存的修改'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(OutlinedButton, '采用本地'));
+    await tester.tap(find.widgetWithText(OutlinedButton, '采用左侧'));
     await tester.pumpAndSettle();
     expect(merge.resultEditor!.text, 'a\nLOCAL\nc\nD\n');
     merge.resultEditor!.text = '// 保留手工编辑\na\nLOCAL\nc\nD\n';
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(OutlinedButton, '采用远端'));
+    await tester.tap(find.widgetWithText(OutlinedButton, '采用右侧'));
     await tester.pumpAndSettle();
     expect(merge.resultEditor!.text, startsWith('// 保留手工编辑\na\nREMOTE'));
     await tester.tap(find.widgetWithText(FilledButton, '保存'));
@@ -292,5 +293,57 @@ void main() {
     await (await GitReview.open(gitFile.path, staged: true)).apply({0});
     expect(await git(['diff', '--cached']), '');
     expect(await gitFile.readAsString(), workingText);
+
+    await git(['restore', 'file.txt']);
+    await git(['branch', '-M', 'main']);
+    await git(['checkout', '-qb', 'feature']);
+    await gitFile.writeAsString('feature version\n');
+    await git(['commit', '-qam', 'feature change']);
+    await git(['checkout', '-q', 'main']);
+    await gitFile.writeAsString('main version\n');
+    await git(['commit', '-qam', 'main change']);
+    await git(['checkout', '-q', 'feature']);
+    final conflict = await Process.run(await GitReview.executable(), [
+      'rebase',
+      'main',
+    ], workingDirectory: repository.path);
+    expect(conflict.exitCode, 1);
+    final snapshots = <String>[];
+    for (var stage = 1; stage <= 3; stage++) {
+      final snapshot = File('${dir.path}/rebase-stage$stage.txt');
+      await snapshot.writeAsString(await git(['show', ':$stage:file.txt']));
+      snapshots.add(snapshot.path);
+    }
+    final rebasing = await CompareSession.open(
+      LaunchOptions(
+        base: snapshots[0],
+        left: snapshots[1],
+        right: snapshots[2],
+        output: gitFile.path,
+      ),
+    );
+    expect(rebasing.mergeLabels.operation, MergeOperation.rebase);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: boundary,
+        child: FmergeApp(
+          initial: rebasing,
+          settings: Settings(persist: false),
+          nativeWindow: true,
+        ),
+      ),
+    );
+    await ready(rebasing);
+    expect(find.text('正在将 feature 变基到 main'), findsOneWidget);
+    await tester.tap(find.widgetWithText(OutlinedButton, '采用目标历史'));
+    await tester.pumpAndSettle();
+    expect(rebasing.resultEditor!.text, 'main version\n');
+    await tester.tap(find.widgetWithText(OutlinedButton, '采用本次提交'));
+    await tester.pumpAndSettle();
+    expect(rebasing.resultEditor!.text, 'feature version\n');
+    await snapshot('rebase-sources');
+    expect(tester.takeException(), isNull);
   });
 }

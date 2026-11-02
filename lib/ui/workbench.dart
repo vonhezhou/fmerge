@@ -13,6 +13,7 @@ import '../core/files.dart';
 import '../core/diff.dart';
 import '../core/launch.dart';
 import '../core/merge.dart';
+import '../core/merge_labels.dart';
 import '../core/settings.dart';
 import '../session.dart';
 import '../palette.dart';
@@ -56,6 +57,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       _leftEditable = false,
       _closing = false,
       _saving = false,
+      _identifyingSource = false,
       _diskChanged = false;
   int _active = 1, _hunk = 0, _conflict = 0;
   double _topFraction = .50;
@@ -693,6 +695,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             children: [
               _header(),
               if (session != null) _toolbar(),
+              if (session?.isMerge == true) _mergeContext(),
               if (_notice != null)
                 _banner(_notice!, () => setState(() => _notice = null)),
               if (_diskChanged)
@@ -1115,7 +1118,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             _leftFocus,
             _leftScroll,
             _leftFind!,
-            s.isMerge ? '本地 · Local' : '原始 · Left',
+            s.isMerge ? s.mergeLabels.leftTitle : '原始 · Left',
             readOnly: s.readOnly || s.isMerge || !_leftEditable,
           ),
         ),
@@ -1128,7 +1131,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             _rightFocus,
             _rightScroll,
             _rightFind!,
-            s.isMerge ? '远端 · Remote' : '修改 · Right',
+            s.isMerge ? s.mergeLabels.rightTitle : '修改 · Right',
             readOnly: s.readOnly || s.isMerge,
           ),
         ),
@@ -1202,7 +1205,16 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   : accent,
             ),
             const SizedBox(width: 7),
-            Text(title, style: const TextStyle(fontSize: 11, color: muted)),
+            Flexible(
+              child: Tooltip(
+                message: title,
+                child: Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: muted),
+                ),
+              ),
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Tooltip(
@@ -1231,6 +1243,27 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           ],
         ),
       ),
+      if (session!.isMerge && side < 2)
+        Container(
+          height: 28,
+          color: elevated,
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Tooltip(
+            message:
+                '${session!.mergeLabels.detail(side == 0)}\n${file.path ?? '未命名文本'}',
+            child: Text(
+              session!.mergeLabels.operation == MergeOperation.files
+                  ? file.path ?? '未命名文本'
+                  : side == 0
+                  ? session!.mergeLabels.leftSource
+                  : session!.mergeLabels.rightSource,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: muted, fontSize: 11),
+            ),
+          ),
+        ),
       Expanded(
         child: CodePane(
           key: ValueKey((session, side, controller)),
@@ -1251,6 +1284,82 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       ),
     ],
   );
+  Widget _mergeContext() {
+    final s = session!, labels = s.mergeLabels;
+    return Container(
+      color: elevated,
+      padding: const EdgeInsets.only(left: 12, right: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              labels.summary,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: accent),
+            ),
+          ),
+          if (labels.operation == MergeOperation.files &&
+              s.output?.path != null)
+            TextButton(
+              onPressed: _identifyingSource ? null : _identifyMergeSource,
+              child: Text(_identifyingSource ? '正在识别…' : '识别 Git 来源'),
+            ),
+          IconButton(
+            tooltip: '查看合并来源与角色',
+            icon: const Icon(Icons.info_outline, size: 17),
+            onPressed: () => showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('合并来源'),
+                content: SingleChildScrollView(
+                  child: SelectableText(
+                    '${labels.summary}\n\n'
+                    '${labels.leftTitle}\n${labels.leftSource}\n${labels.detail(true)}\n${s.left.path ?? '未命名文本'}\n\n'
+                    '${labels.rightTitle}\n${labels.rightSource}\n${labels.detail(false)}\n${s.right.path ?? '未命名文本'}\n\n'
+                    '共同祖先\n${s.base?.path ?? '未命名文本'}\n\n'
+                    'ours / theirs 表示当前 Git 操作的双方角色，不固定表示“我的 / 别人的代码”。'
+                    'rebase 时，左侧是目标历史，右侧是正在重放的提交。',
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('关闭'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _identifyMergeSource() async {
+    final s = session;
+    if (s == null || _identifyingSource || s.output?.path == null) return;
+    setState(() => _identifyingSource = true);
+    try {
+      if (widget.nativeWindow &&
+          !await DirectoryAccess.grant(
+            File(s.output!.path!).absolute.parent.path,
+          )) {
+        return;
+      }
+      await s.identifyMergeLabels();
+      if (mounted &&
+          s == session &&
+          s.mergeLabels.operation == MergeOperation.files) {
+        _message('未确认当前输入对应的 Git 冲突，继续按左右文件路径区分来源。');
+      }
+    } catch (e) {
+      _message('来源识别失败：$e');
+    } finally {
+      if (mounted) setState(() => _identifyingSource = false);
+    }
+  }
+
   Widget _mergeToolbar() {
     final s = session!, regions = s.merger!.state.regions;
     if (regions.isEmpty) {
@@ -1270,75 +1379,82 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       height: 48,
       color: elevated,
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: '上一处冲突 · Shift F8',
-            onPressed: () => _navigate(-1, conflicts: true),
-            icon: const Icon(Icons.chevron_left, size: 18),
-          ),
-          Text(
-            '${_conflict + 1}/${regions.length} · 祖先 L${r.chunk.start + 1}',
-            style: const TextStyle(fontSize: 11, color: muted),
-          ),
-          IconButton(
-            tooltip: '下一处冲突 · F8',
-            onPressed: () => _navigate(1, conflicts: true),
-            icon: const Icon(Icons.chevron_right, size: 18),
-          ),
-          for (final item in const [
-            (MergeChoice.left, '采用本地'),
-            (MergeChoice.right, '采用远端'),
-            (MergeChoice.both, '本地 + 远端'),
-            (MergeChoice.base, '保留祖先'),
-          ])
-            Padding(
-              padding: const EdgeInsets.only(right: 5),
-              child: OutlinedButton(
-                onPressed: s.readOnly
-                    ? null
-                    : () => s.choose(r.chunk.id, item.$1),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: '上一处冲突 · Shift F8',
+              onPressed: () => _navigate(-1, conflicts: true),
+              icon: const Icon(Icons.chevron_left, size: 18),
+            ),
+            Text(
+              '${_conflict + 1}/${regions.length} · 祖先 L${r.chunk.start + 1}',
+              style: const TextStyle(fontSize: 11, color: muted),
+            ),
+            IconButton(
+              tooltip: '下一处冲突 · F8',
+              onPressed: () => _navigate(1, conflicts: true),
+              icon: const Icon(Icons.chevron_right, size: 18),
+            ),
+            for (final item in [
+              (MergeChoice.left, s.mergeLabels.leftAction),
+              (MergeChoice.right, s.mergeLabels.rightAction),
+              (MergeChoice.both, '左右组合'),
+              (MergeChoice.base, '保留祖先'),
+            ])
+              Padding(
+                padding: const EdgeInsets.only(right: 5),
+                child: OutlinedButton(
+                  onPressed: s.readOnly
+                      ? null
+                      : () => s.choose(r.chunk.id, item.$1),
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                  child: Text(item.$2, style: const TextStyle(fontSize: 11)),
                 ),
-                child: Text(item.$2, style: const TextStyle(fontSize: 11)),
+              ),
+            PopupMenuButton<String>(
+              tooltip: '其他冲突操作',
+              enabled: !s.readOnly,
+              onSelected: (v) {
+                if (v == 'reverse') {
+                  s.choose(r.chunk.id, MergeChoice.both, reverse: true);
+                } else {
+                  s.markResolved(r.chunk.id, !r.resolved);
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'reverse', child: Text('右侧在前，左侧在后')),
+                PopupMenuItem(
+                  value: 'mark',
+                  child: Text(r.resolved ? '标记为未处理' : '标记为已手工解决'),
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            TextButton.icon(
+              onPressed: s.readOnly
+                  ? null
+                  : () => s.markResolved(r.chunk.id, !r.resolved),
+              icon: Icon(
+                r.resolved ? Icons.check_circle : Icons.radio_button_unchecked,
+                size: 15,
+                color: r.resolved ? green : amber,
+              ),
+              label: Text(
+                r.resolved ? '已确认' : '标记解决',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: r.resolved ? green : amber,
+                ),
               ),
             ),
-          PopupMenuButton<String>(
-            tooltip: '其他冲突操作',
-            enabled: !s.readOnly,
-            onSelected: (v) {
-              if (v == 'reverse') {
-                s.choose(r.chunk.id, MergeChoice.both, reverse: true);
-              } else {
-                s.markResolved(r.chunk.id, !r.resolved);
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'reverse', child: Text('远端在前，本地在后')),
-              PopupMenuItem(
-                value: 'mark',
-                child: Text(r.resolved ? '标记为未处理' : '标记为已手工解决'),
-              ),
-            ],
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: s.readOnly
-                ? null
-                : () => s.markResolved(r.chunk.id, !r.resolved),
-            icon: Icon(
-              r.resolved ? Icons.check_circle : Icons.radio_button_unchecked,
-              size: 15,
-              color: r.resolved ? green : amber,
-            ),
-            label: Text(
-              r.resolved ? '已确认' : '标记解决',
-              style: TextStyle(fontSize: 11, color: r.resolved ? green : amber),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

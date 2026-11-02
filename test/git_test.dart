@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fmerge/core/git.dart';
+import 'package:fmerge/core/files.dart';
+import 'package:fmerge/core/launch.dart';
+import 'package:fmerge/core/merge_labels.dart';
+import 'package:fmerge/session.dart';
 
 void main() {
   late Directory dir;
@@ -13,10 +17,11 @@ void main() {
 
   setUp(() async {
     dir = await Directory.systemTemp.createTemp('fmerge-git-');
-    await git(['init', '-q']);
+    await git(['init', '-q', '-b', 'main']);
     await git(['config', 'user.email', 'test@example.invalid']);
     await git(['config', 'user.name', 'Test']);
     await git(['config', 'core.autocrlf', 'false']);
+    await git(['config', 'commit.gpgsign', 'false']);
   });
   tearDown(() => dir.delete(recursive: true));
 
@@ -98,5 +103,146 @@ void main() {
     await git(['commit', '-qm', 'initial']);
     await file.writeAsBytes([0, 2]);
     await expectLater(GitReview.open(file.path), throwsFormatException);
+  });
+  Future<File> divergentBranches() async {
+    final file = File('${dir.path}/file');
+    await file.writeAsString('base\n');
+    await git(['add', 'file']);
+    await git(['commit', '-qm', 'base']);
+    await git(['checkout', '-qb', 'feature']);
+    await file.writeAsString('feature\n');
+    await git(['commit', '-qam', 'feature change']);
+    await git(['checkout', '-q', 'main']);
+    await file.writeAsString('main\n');
+    await git(['commit', '-qam', 'main change']);
+    await git(['checkout', '-q', 'feature']);
+    return file;
+  }
+
+  Future<LaunchOptions> conflictInputs(File file) async {
+    final paths = <String>[];
+    for (var stage = 1; stage <= 3; stage++) {
+      final snapshot = File('${dir.path}/stage$stage.txt');
+      await snapshot.writeAsString(await git(['show', ':$stage:file']));
+      paths.add(snapshot.path);
+    }
+    return LaunchOptions(
+      base: paths[0],
+      left: paths[1],
+      right: paths[2],
+      output: file.path,
+    );
+  }
+
+  for (final rebasing in [false, true]) {
+    test('${rebasing ? 'rebase' : 'merge'} 来源按实际冲突和提交核验，输入互换或改变后回退', () async {
+      final file = await divergentBranches();
+      final result = await Process.run(
+        'git',
+        rebasing ? ['rebase', 'main'] : ['merge', 'main'],
+        workingDirectory: dir.path,
+      );
+      expect(result.exitCode, 1, reason: '${result.stdout} ${result.stderr}');
+      final args = await conflictInputs(file);
+      final s = await CompareSession.open(args);
+      addTearDown(s.dispose);
+      final labels = s.mergeLabels;
+      expect(
+        labels.operation,
+        rebasing ? MergeOperation.rebase : MergeOperation.merge,
+      );
+      expect(
+        labels.summary,
+        rebasing ? '正在将 feature 变基到 main' : '正在将 main 合并到 feature',
+      );
+      expect(
+        labels.leftSource,
+        contains(rebasing ? 'main change' : 'feature change'),
+      );
+      expect(
+        labels.rightSource,
+        contains(rebasing ? 'feature change' : 'main change'),
+      );
+      expect(labels.leftAction, rebasing ? '采用目标历史' : '采用当前分支');
+      expect(labels.rightAction, rebasing ? '采用本次提交' : '采用合入版本');
+      expect(labels.detail(true), contains('ours / current / LOCAL'));
+      final swapped = await GitMergeLabels.detect(
+        left: s.right,
+        right: s.left,
+        base: s.base!,
+        output: file.path,
+      );
+      expect(swapped.operation, MergeOperation.files);
+      final modified = await GitMergeLabels.detect(
+        left: TextFile.empty('unrelated'),
+        right: s.right,
+        base: s.base!,
+        output: file.path,
+      );
+      expect(modified.operation, MergeOperation.files);
+      expect(await file.readAsString(), contains('<<<<<<<'));
+    });
+  }
+
+  test('正常文件及已解决索引不冒充 Git 冲突；分支引用不唯一时显示提交哈希', () async {
+    final file = await divergentBranches();
+    final result = await Process.run('git', [
+      'merge',
+      'main',
+    ], workingDirectory: dir.path);
+    expect(result.exitCode, 1);
+    await git(['branch', 'alias-main', 'main']);
+    final args = await conflictInputs(file);
+    final s = await CompareSession.open(args);
+    addTearDown(s.dispose);
+    final incoming = (await git(['rev-parse', '--short=8', 'main'])).trim();
+    expect(s.mergeLabels.rightTitle, '合入版本 · $incoming');
+    await file.writeAsString('resolved\n');
+    await git(['add', 'file']);
+    final resolved = await CompareSession.open(args);
+    addTearDown(resolved.dispose);
+    expect(resolved.mergeLabels.operation, MergeOperation.files);
+    expect(resolved.mergeLabels.leftTitle, '左侧输入');
+    expect(resolved.mergeLabels.rightAction, '采用右侧');
+  });
+
+  test('linked worktree 的 rebase 使用独立状态，左侧保留已重放提交身份', () async {
+    final file = File('${dir.path}/file');
+    final other = File('${dir.path}/other');
+    await file.writeAsString('base\n');
+    await other.writeAsString('base\n');
+    await git(['add', 'file', 'other']);
+    await git(['commit', '-qm', 'base']);
+    await git(['checkout', '-qb', 'feature']);
+    await other.writeAsString('first feature commit\n');
+    await git(['commit', '-qam', 'already replayed']);
+    await file.writeAsString('feature\n');
+    await git(['commit', '-qam', 'replaying now']);
+    await git(['checkout', '-q', 'main']);
+    await file.writeAsString('main\n');
+    await git(['commit', '-qam', 'target change']);
+    final linked = '${dir.path}/linked';
+    await git(['worktree', 'add', '-q', linked, 'feature']);
+    final result = await Process.run('git', [
+      'rebase',
+      'main',
+    ], workingDirectory: linked);
+    expect(result.exitCode, 1);
+    final inputs = <TextFile>[];
+    for (var stage = 1; stage <= 3; stage++) {
+      inputs.add(
+        TextFile.empty(await git(['-C', linked, 'show', ':$stage:file'])),
+      );
+    }
+    final labels = await GitMergeLabels.detect(
+      left: inputs[1],
+      right: inputs[2],
+      base: inputs[0],
+      output: '$linked/file',
+    );
+    expect(labels.operation, MergeOperation.rebase);
+    expect(labels.summary, '正在将 feature 变基到 main');
+    expect(labels.leftSource, contains('already replayed'));
+    expect(labels.rightSource, contains('replaying now'));
   });
 }

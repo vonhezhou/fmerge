@@ -10,6 +10,8 @@ import 'core/context_rows.dart';
 import 'core/alignment.dart';
 import 'core/files.dart';
 import 'core/launch.dart';
+import 'core/git.dart';
+import 'core/merge_labels.dart';
 import 'core/merge.dart';
 import 'core/merge_session.dart';
 import 'palette.dart';
@@ -21,6 +23,7 @@ class CompareSession extends ChangeNotifier {
     this.base,
     this.output,
     this.readOnly = false,
+    this.mergeLabels = const MergeLabels(),
   }) {
     leftEditor = CodeLineEditingController.fromText(left.text);
     rightEditor = CodeLineEditingController.fromText(right.text);
@@ -42,6 +45,7 @@ class CompareSession extends ChangeNotifier {
   final TextFile? base;
   TextFile? output;
   final bool readOnly;
+  MergeLabels mergeLabels;
   late CodeLineEditingController leftEditor, rightEditor;
   CodeLineEditingController? resultEditor;
   MergeSession? merger;
@@ -128,6 +132,19 @@ class CompareSession extends ChangeNotifier {
   }
 
   bool get isMerge => base != null;
+  Future<void> identifyMergeLabels() async {
+    if (!isMerge || output?.path == null) return;
+    final labels = await GitMergeLabels.detect(
+      left: left,
+      right: right,
+      base: base!,
+      output: output!.path!,
+    );
+    if (_disposed) return;
+    mergeLabels = labels;
+    notifyListeners();
+  }
+
   int get pending => merger?.pending ?? 0;
   bool get leftDirty => leftEditor.text != left.text;
   bool get rightDirty =>
@@ -166,9 +183,18 @@ class CompareSession extends ChangeNotifier {
               ..path = File(args.output!).absolute.path
               ..digest = null);
     }
+    final labels = args.merge && args.output != null
+        ? await GitMergeLabels.detect(
+            left: files[0],
+            right: files[1],
+            base: files[2],
+            output: args.output!,
+          )
+        : const MergeLabels();
     return CompareSession(
       files[0],
       files[1],
+      mergeLabels: labels,
       base: files.length == 3 ? files[2] : null,
       output: output,
       readOnly: args.readOnly,

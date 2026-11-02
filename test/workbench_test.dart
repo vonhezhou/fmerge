@@ -7,6 +7,7 @@ import 'package:fmerge/main.dart';
 import 'package:fmerge/session.dart';
 import 'package:fmerge/core/files.dart';
 import 'package:fmerge/core/settings.dart';
+import 'package:fmerge/core/merge_labels.dart';
 import 'package:fmerge/ui/code_pane.dart';
 import 'package:fmerge/ui/workbench.dart';
 import 'package:fmerge/ui/git_dialog.dart';
@@ -148,12 +149,12 @@ void main() {
       );
       await ready(tester);
       expect(find.text('1 处冲突待确认'), findsOneWidget);
-      await tester.tap(find.widgetWithText(OutlinedButton, '采用本地'));
+      await tester.tap(find.widgetWithText(OutlinedButton, '采用左侧'));
       await tester.pumpAndSettle();
       expect(merge.resultEditor!.text, 'a\nL\nc');
       merge.resultEditor!.text = 'header\na\nL\nc';
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, '采用远端'));
+      await tester.tap(find.widgetWithText(OutlinedButton, '采用右侧'));
       await tester.pumpAndSettle();
       expect(merge.resultEditor!.text, 'header\na\nR\nc');
       expect(tester.takeException(), isNull);
@@ -199,6 +200,52 @@ void main() {
     expect(s.diff!.changes.length, 1);
     expect(tester.takeException(), isNull);
   });
+
+  for (final rebase in [false, true]) {
+    testWidgets('${rebase ? 'rebase' : 'merge'} 角色标签和采用按钮对应真实左右输入', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(920, 680);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final labels = MergeLabels(
+        operation: rebase ? MergeOperation.rebase : MergeOperation.merge,
+        summary: rebase ? '正在将 feature 变基到 main' : '正在将 main 合并到 feature',
+        leftTitle: rebase ? '目标历史' : '当前分支 · feature-with-a-very-long-name',
+        rightTitle: rebase ? '本次提交' : '合入版本 · main',
+        leftSource: '12345678 · 左侧提交摘要',
+        rightSource: 'abcdef01 · 右侧提交摘要',
+        leftAction: rebase ? '采用目标历史' : '采用当前分支',
+        rightAction: rebase ? '采用本次提交' : '采用合入版本',
+      );
+      final s = CompareSession(
+        TextFile.empty('LEFT'),
+        TextFile.empty('RIGHT'),
+        base: TextFile.empty('BASE'),
+        mergeLabels: labels,
+      );
+      await tester.pumpWidget(
+        FmergeApp(settings: Settings(persist: false), initial: s),
+      );
+      await ready(tester);
+      expect(find.text(labels.summary), findsOneWidget);
+      expect(find.text(labels.leftTitle), findsOneWidget);
+      expect(find.text(labels.rightSource), findsOneWidget);
+      expect(find.text('本地 · Local'), findsNothing);
+      await tester.tap(find.widgetWithText(OutlinedButton, labels.leftAction));
+      await tester.pumpAndSettle();
+      expect(s.resultEditor!.text, 'LEFT');
+      await tester.tap(find.widgetWithText(OutlinedButton, labels.rightAction));
+      await tester.pumpAndSettle();
+      expect(s.resultEditor!.text, 'RIGHT');
+      await tester.tap(find.byTooltip('查看合并来源与角色'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('ours / current / LOCAL'), findsOneWidget);
+      expect(find.textContaining('theirs / incoming / REMOTE'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('保存按钮写入真实输出文件，外部修改需要显式确认', (tester) async {
     final dir = Directory.systemTemp.createTempSync('fmerge-ui-');

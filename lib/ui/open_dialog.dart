@@ -143,7 +143,7 @@ class _OpenDialogState extends State<OpenDialog> {
                 TextButton.icon(
                   onPressed: busy ? null : browsePair,
                   icon: const Icon(Icons.file_open_outlined),
-                  label: Text(merge ? '同时选择本地和远端' : '同时选择两个文件'),
+                  label: const Text('同时选择两个文件'),
                 ),
                 TextButton.icon(
                   onPressed: busy
@@ -159,8 +159,8 @@ class _OpenDialogState extends State<OpenDialog> {
               ],
             ),
             if (merge) field('共同祖先 · Base', base),
-            field(merge ? '本地文件 · Local' : '左侧 · 原始文件', left),
-            field(merge ? '远端文件 · Remote' : '右侧 · 修改文件', right),
+            field(merge ? '左侧输入 · --local' : '左侧 · 原始文件', left),
+            field(merge ? '右侧输入 · --remote' : '右侧 · 修改文件', right),
             field('输出位置（可留空，保存时选择）', output, save: true),
             DropdownButton<TextEncoding?>(
               hint: const Text('编码：自动识别 UTF-8 / UTF-16'),

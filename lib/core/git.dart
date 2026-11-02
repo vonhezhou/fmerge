@@ -2,6 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:crypto/crypto.dart';
+
+import 'files.dart';
+import 'merge_labels.dart';
 
 class GitPatch {
   GitPatch(this.header, this.hunks);
@@ -213,5 +217,137 @@ class GitReview {
     await stdout;
     final error = await stderr;
     if (code != 0) throw StateError('暂存操作失败，索引未应用此补丁：$error');
+  }
+}
+
+class GitMergeLabels {
+  /// 只有输入快照、索引和提交来源相互吻合时，才赋予 Git 操作角色。
+  static Future<MergeLabels> detect({
+    required TextFile left,
+    required TextFile right,
+    required TextFile base,
+    required String output,
+  }) async {
+    try {
+      final parent = await Directory(p.dirname(p.absolute(output)))
+          .resolveSymbolicLinks();
+      final absolute = p.join(parent, p.basename(output));
+      final root = await GitReview.findRoot(absolute);
+      if (!p.isWithin(root, absolute)) return const MergeLabels();
+      final path = p.relative(absolute, from: root);
+      Future<String> git(List<String> args) => GitReview._git(root, args);
+      Future<String> revision(String name) async =>
+          (await git(['rev-parse', '--verify', '$name^{commit}'])).trim();
+      Future<String?> state(String name) async {
+        final location = (await git(['rev-parse', '--git-path', name]))
+            .trimRight();
+        final file = File(
+          p.isAbsolute(location) ? location : p.join(root, location),
+        );
+        return await file.exists() ? (await file.readAsString()).trim() : null;
+      }
+
+      final index = await GitReview._indexState(root, path);
+      final stages = <int, String>{};
+      for (final entry in index.split('\u0000')) {
+        final match = RegExp(r'^100(?:644|755) ([a-f0-9]+) ([123])\t')
+            .firstMatch(entry);
+        if (match != null) stages[int.parse(match[2]!)] = match[1]!;
+      }
+      bool matches(TextFile file, String? oid) {
+        if (oid == null) return false;
+        final bytes = TextFile.encode(file.original, file.encoding);
+        final data = [...utf8.encode('blob ${bytes.length}\u0000'), ...bytes];
+        return (oid.length == 40 ? sha1 : sha256).convert(data).toString() ==
+            oid;
+      }
+
+      if (!matches(left, stages[2]) ||
+          !matches(right, stages[3]) ||
+          (stages[1] != null
+              ? !matches(base, stages[1])
+              : base.original.isNotEmpty)) {
+        return const MergeLabels();
+      }
+      final head = await revision('HEAD');
+      final rebaseBranch =
+          await state('rebase-merge/head-name') ??
+          await state('rebase-apply/head-name');
+      final rebasing = rebaseBranch != null;
+      final otherRef = rebasing ? 'REBASE_HEAD' : 'MERGE_HEAD';
+      final other = await revision(otherRef);
+      // 重命名冲突等无法按输出路径核对来源的情况保守回退。
+      if ((await git(['rev-parse', '$head:$path'])).trim() != stages[2] ||
+          (await git(['rev-parse', '$other:$path'])).trim() != stages[3]) {
+        return const MergeLabels();
+      }
+      Future<String> source(String commit) async {
+        final subject = (await git(['show', '-s', '--format=%s', commit]))
+            .trimRight();
+        return '${commit.substring(0, 8)} · $subject';
+      }
+
+      Future<String> name(String commit) async {
+        final refs = (await git([
+          'for-each-ref',
+          '--format=%(refname:short)',
+          '--points-at=$commit',
+          'refs/heads',
+        ])).trim().split('\n').where((s) => s.isNotEmpty).toList();
+        return refs.length == 1 ? refs.single : commit.substring(0, 8);
+      }
+
+      final leftSource = await source(head), rightSource = await source(other);
+      late MergeLabels labels;
+      if (rebasing) {
+        final onto =
+            await state('rebase-merge/onto') ??
+            await state('rebase-apply/onto');
+        if (onto == null || !RegExp(r'^[a-f0-9]{40,64}$').hasMatch(onto)) {
+          return const MergeLabels();
+        }
+        final target = await name(onto);
+        final branch = rebaseBranch.replaceFirst('refs/heads/', '');
+        labels = MergeLabels(
+          operation: MergeOperation.rebase,
+          summary: '正在将 $branch 变基到 $target',
+          leftTitle: '目标历史',
+          rightTitle: '本次提交',
+          leftSource: '$target + 已重放提交 · $leftSource',
+          rightSource: rightSource,
+          leftAction: '采用目标历史',
+          rightAction: '采用本次提交',
+        );
+      } else {
+        String? branch;
+        try {
+          branch = (await git(['symbolic-ref', '--quiet', '--short', 'HEAD']))
+              .trim();
+        } catch (_) {
+          // detached HEAD 仍有确定的输入提交，只是不宣称它属于某个当前分支。
+        }
+        final current = branch ?? 'HEAD ${head.substring(0, 8)}';
+        final incoming = await name(other);
+        labels = MergeLabels(
+          operation: MergeOperation.merge,
+          summary: '正在将 $incoming 合并到 $current',
+          leftTitle: branch == null ? '当前版本 · $current' : '当前分支 · $branch',
+          rightTitle: '合入版本 · $incoming',
+          leftSource: leftSource,
+          rightSource: rightSource,
+          leftAction: branch == null ? '采用当前版本' : '采用当前分支',
+          rightAction: '采用合入版本',
+        );
+      }
+      if (index != await GitReview._indexState(root, path) ||
+          head != await revision('HEAD') ||
+          other != await revision(otherRef)) {
+        return const MergeLabels();
+      }
+      return labels;
+    } catch (_) {
+      // 没有 Git、目录未授权或不是当前冲突时，仍可按原始路径完成文件合并。
+      return const MergeLabels();
+    }
   }
 }
