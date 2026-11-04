@@ -16,6 +16,46 @@ class SettingsDialog extends StatefulWidget {
 
 class _SettingsDialogState extends State<SettingsDialog> {
   final _scroll = ScrollController();
+  final _accessNoticeKey = GlobalKey();
+  bool _revoking = false;
+  String? _accessNotice;
+  bool _accessFailed = false;
+
+  Future<void> _revokeAccess() async {
+    if (_revoking) return;
+    setState(() {
+      _revoking = true;
+      _accessNotice = null;
+    });
+    try {
+      await const MethodChannel('fmerge/access').invokeMethod<void>('revoke');
+      if (!mounted) return;
+      setState(() {
+        _accessFailed = false;
+        _accessNotice = '已清除文件与目录授权书签；重启后完全生效。';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _accessFailed = true;
+        _accessNotice = '撤销目录授权失败：$e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _revoking = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final context = _accessNoticeKey.currentContext;
+          if (context != null) {
+            Scrollable.ensureVisible(
+              context,
+              alignment: 1,
+              duration: const Duration(milliseconds: 180),
+            );
+          }
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -41,6 +81,13 @@ class _SettingsDialogState extends State<SettingsDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _section('编辑器', Icons.code),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('显示工具栏文字'),
+                  subtitle: const Text('在操作图标下方显示名称。'),
+                  value: s.toolbarLabels,
+                  onChanged: (value) => setState(() => s.toolbarLabels = value),
+                ),
                 Row(
                   children: [
                     const Text('编辑器字号'),
@@ -71,6 +118,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 ),
                 const SizedBox(height: 16),
                 _section('比较规则', Icons.compare_arrows),
+                const Text(
+                  '忽略规则只改变差异显示；三方合并始终精确判断修改和冲突。',
+                  style: TextStyle(color: muted, fontSize: 12),
+                ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('忽略大小写'),
@@ -116,26 +167,28 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   value: s.backup,
                   onChanged: (v) => setState(() => s.backup = v),
                 ),
-                if (Platform.isMacOS)
+                if (Platform.isMacOS) ...[
                   TextButton(
-                    onPressed: () async {
-                      await const MethodChannel('fmerge/access')
-                          .invokeMethod<void>('revoke');
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('已清除目录授权书签；重启后完全生效')),
-                        );
-                      }
-                    },
-                    child: const Text('撤销已授权目录（重启后完全生效）'),
+                    onPressed: _revoking ? null : _revokeAccess,
+                    child: Text(_revoking ? '正在撤销文件授权…' : '撤销已授权文件与目录'),
                   ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 12),
-                  child: Text(
-                    '忽略规则只改变差异显示；三方合并始终精确判断修改和冲突。',
+                  const Text(
+                    '重启后完全生效；下次读写相关目录时需重新授权。',
                     style: TextStyle(color: muted, fontSize: 12),
                   ),
-                ),
+                  if (_accessNotice != null)
+                    Padding(
+                      key: _accessNoticeKey,
+                      padding: const EdgeInsets.only(top: 8),
+                      child: SelectableText(
+                        _accessNotice!,
+                        style: TextStyle(
+                          color: _accessFailed ? red : green,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
               ],
             ),
           ),

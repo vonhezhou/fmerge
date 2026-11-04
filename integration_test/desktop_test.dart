@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,6 +38,11 @@ void main() {
         TextEncoding.utf8Bom,
       ),
     );
+    // 验证原生书签 API 的保存/恢复链路；外部受保护目录仍需系统选择器人工验收。
+    await native.invokeMethod<void>('rememberFiles', {
+      'paths': [left.path, right.path],
+    });
+    await native.invokeMethod<void>('restore');
     final s = await CompareSession.open(
       LaunchOptions(left: left.path, right: right.path),
     );
@@ -52,6 +58,8 @@ void main() {
       ),
     );
     await windowManager.show();
+    // 与正式启动流程一致，激活窗口后再验证编辑器快捷键。
+    await windowManager.focus();
     Future<void> ready(CompareSession current) async {
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (current.busy || current.diff == null) {
@@ -81,15 +89,17 @@ void main() {
     await snapshot('diff');
     final panes = find.byType(CodePane);
     await tester.tapAt(tester.getCenter(panes.at(1)));
+    final selectedText = s.rightEditor.text;
     s.rightEditor.selectAll();
     await s.rightEditor.copy();
-    expect((await Clipboard.getData(Clipboard.kTextPlain))!.text, s.right.text);
+    expect((await Clipboard.getData(Clipboard.kTextPlain))!.text, selectedText);
     s.rightEditor.runRevocableOp(
       () => s.rightEditor.text = 'class A {\n  final value = 3;\n}\n',
     );
     await tester.pump(const Duration(milliseconds: 180));
     await ready(s);
     // 编辑器持有焦点时发送保存快捷键，确保内部快捷键没有吞掉保存。
+    expect(tester.widgetList<CodePane>(panes).last.focus.hasFocus, true);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
@@ -111,11 +121,14 @@ void main() {
     expect(await File('${right.path}.bak').exists(), true);
     // 原生菜单必须编辑当前对话框字段，不能误改背后的文件。
     final savedText = s.rightEditor.text;
-    await tester.tap(find.text('打开比较'));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyG);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await tester.pumpAndSettle();
     final pathField = find.byType(TextField).first;
     await tester.tap(pathField);
     await tester.pumpAndSettle();
+    await native.invokeMethod<void>('performMenuAction', {'label': '全选'});
     await Clipboard.setData(
       const ClipboardData(text: '/tmp/native-menu-path.txt'),
     );
@@ -198,7 +211,7 @@ void main() {
     await tester.tap(find.widgetWithText(OutlinedButton, '采用右侧'));
     await tester.pumpAndSettle();
     expect(merge.resultEditor!.text, startsWith('// 保留手工编辑\na\nREMOTE'));
-    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.tap(find.byTooltip('保存'));
     final mergeDeadline = DateTime.now().add(const Duration(seconds: 10));
     while (merge.resultDirty && DateTime.now().isBefore(mergeDeadline)) {
       await tester.pump(const Duration(milliseconds: 40));
@@ -209,6 +222,11 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pump(const Duration(seconds: 4));
     await snapshot('merge');
+    await tester.tap(find.text('查看祖先'));
+    await tester.pumpAndSettle();
+    await snapshot('base');
+    await tester.tap(find.byTooltip('关闭共同祖先'));
+    await tester.pumpAndSettle();
     // 大文件使用同一套可编辑布局，验证远距离定位与鼠标滚轮同步。
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
@@ -246,12 +264,20 @@ void main() {
       largePanes.last.scroll.verticalScroller.offset,
     );
     expect(large.leftEditor.text, original.join('\n'));
-    await tester.tap(find.byTooltip('仅显示差异及前后 3 行'));
+    await tester.tap(find.byTooltip('显示与比较选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
+    );
     await tester.pumpAndSettle();
     expect(large.leftEditor.diffLayout!.totalRows, 10);
     expect(large.rightEditor.diffLayout!.totalRows, 10);
     expect(large.leftEditor.text, original.join('\n'));
-    await tester.tap(find.byTooltip('显示整个文件'));
+    await tester.tap(find.byTooltip('显示与比较选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
+    );
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
@@ -344,6 +370,88 @@ void main() {
     await tester.pumpAndSettle();
     expect(rebasing.resultEditor!.text, 'feature version\n');
     await snapshot('rebase-sources');
+    await windowManager.setSize(const Size(920, 680));
+    await tester.pumpAndSettle();
+    await snapshot('merge-compact');
+    await git(['rebase', '--abort']);
+    await gitFile.writeAsString('review unstaged change\n');
+    final staging = CompareSession(
+      TextFile.empty(await git(['show', 'HEAD:file.txt'])),
+      await TextFile.read(gitFile.path),
+    );
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: boundary,
+        child: FmergeApp(
+          initial: staging,
+          settings: Settings(persist: false),
+          nativeWindow: true,
+        ),
+      ),
+    );
+    await ready(staging);
+    await snapshot('diff-compact');
+    staging.rightEditor.selection = const CodeLineSelection.collapsed(
+      index: 0,
+      offset: 0,
+    );
+    await tester.tapAt(
+      tester.getTopLeft(find.byType(CodePane).last) + const Offset(90, 20),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await snapshot('stage-context');
+    await tester.tap(find.text('暂存所选代码块'));
+    final gitDeadline = DateTime.now().add(const Duration(seconds: 10));
+    while (find.textContaining('已暂存 1 个 Git 差异块').evaluate().isEmpty) {
+      if (DateTime.now().isAfter(gitDeadline)) fail('Git 暂存超时');
+      await tester.pump(const Duration(milliseconds: 40));
+    }
+    expect(await git(['show', ':file.txt']), 'review unstaged change\n');
+    expect(await gitFile.readAsString(), 'review unstaged change\n');
+    await snapshot('stage-result');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: boundary,
+        child: FmergeApp(
+          settings: Settings(persist: false),
+          nativeWindow: true,
+        ),
+      ),
+    );
+    await snapshot('welcome');
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    await snapshot('settings');
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新建文本比较'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyG);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+    await snapshot('goto');
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('另存为…'));
+    await tester.pumpAndSettle();
+    await snapshot('format');
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    final blankPane = tester.widgetList<CodePane>(find.byType(CodePane)).last;
+    blankPane.find.replaceMode();
+    blankPane.find.toggleRegex();
+    blankPane.find.findInputController.text = '[';
+    await tester.pumpAndSettle();
+    expect(find.text('正则无效'), findsOneWidget);
+    await snapshot('find-invalid');
     expect(tester.takeException(), isNull);
   });
 }

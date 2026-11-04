@@ -4,6 +4,7 @@ import 'package:re_editor/re_editor.dart';
 import '../core/files.dart';
 import '../core/settings.dart';
 import 'code_pane.dart';
+import 'document_status.dart';
 
 class BaseDialog extends StatefulWidget {
   const BaseDialog({
@@ -12,11 +13,13 @@ class BaseDialog extends StatefulWidget {
     required this.settings,
     this.language,
     this.onLanguageChanged,
+    this.onEncodingChanged,
   });
   final TextFile file;
   final Settings settings;
   final String? language;
   final ValueChanged<String?>? onLanguageChanged;
+  final ValueChanged<TextEncoding?>? onEncodingChanged;
   @override
   State<BaseDialog> createState() => _BaseDialogState();
 }
@@ -45,20 +48,31 @@ class _BaseDialogState extends State<BaseDialog> {
       child: Column(
         children: [
           ListTile(
-            title: const Text('共同祖先 · Base'),
-            subtitle: Text(widget.file.path ?? '未命名'),
+            title: const Row(
+              children: [
+                Text('共同祖先 · Base'),
+                SizedBox(width: 10),
+                Text('只读', style: TextStyle(fontSize: 11)),
+              ],
+            ),
+            subtitle: Tooltip(
+              message: widget.file.path ?? '未命名',
+              child: Text(
+                widget.file.path ?? '未命名',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                LanguageMenu(
-                  name: widget.file.name,
-                  value: language,
-                  onChanged: (value) {
-                    setState(() => language = value);
-                    widget.onLanguageChanged?.call(value);
-                  },
+                IconButton(
+                  tooltip: '在共同祖先中查找',
+                  onPressed: find.findMode,
+                  icon: const Icon(Icons.search),
                 ),
                 IconButton(
+                  tooltip: '关闭共同祖先',
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
@@ -75,6 +89,16 @@ class _BaseDialogState extends State<BaseDialog> {
               readOnly: true,
               find: find,
             ),
+          ),
+          DocumentStatus(
+            file: widget.file,
+            controller: controller,
+            language: language,
+            onLanguageChanged: (value) {
+              setState(() => language = value);
+              widget.onLanguageChanged?.call(value);
+            },
+            onEncodingChanged: widget.onEncodingChanged,
           ),
         ],
       ),

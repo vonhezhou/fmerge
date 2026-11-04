@@ -45,6 +45,8 @@ class CompareSession extends ChangeNotifier {
   final TextFile? base;
   TextFile? output;
   String? leftLanguage, rightLanguage, resultLanguage, baseLanguage;
+  final saveEncodings = <int, TextEncoding>{};
+  final saveEols = <int, String>{};
   final bool readOnly;
   MergeLabels mergeLabels;
   late CodeLineEditingController leftEditor, rightEditor;
@@ -82,6 +84,14 @@ class CompareSession extends ChangeNotifier {
     final language = leftLanguage;
     leftLanguage = rightLanguage;
     rightLanguage = language;
+    void swap<T>(Map<int, T> values) {
+      final left = values.remove(0), right = values.remove(1);
+      if (left != null) values[1] = left;
+      if (right != null) values[0] = right;
+    }
+
+    swap(saveEncodings);
+    swap(saveEols);
     final controller = leftEditor;
     leftEditor = rightEditor;
     rightEditor = controller;
@@ -150,13 +160,22 @@ class CompareSession extends ChangeNotifier {
   }
 
   int get pending => merger?.pending ?? 0;
-  bool get leftDirty => leftEditor.text != left.text;
+  bool get leftDirty =>
+      leftEditor.text != left.text ||
+      saveEncodings.containsKey(0) ||
+      saveEols.containsKey(0);
   bool get rightDirty =>
       rightEditor.text !=
-      (!isMerge && output != null ? output!.text : right.text);
+          (!isMerge && output != null ? output!.text : right.text) ||
+      saveEncodings.containsKey(1) ||
+      saveEols.containsKey(1);
   bool get resultDirty =>
       isMerge &&
-      (resultEditor!.text != _savedResult || !savedMerge || pending > 0);
+      (resultEditor!.text != _savedResult ||
+          !savedMerge ||
+          pending > 0 ||
+          saveEncodings.containsKey(2) ||
+          saveEols.containsKey(2));
   bool get dirty => !readOnly && (leftDirty || rightDirty || resultDirty);
   int get toolExitCode =>
       isMerge && (!savedMerge || resultDirty || pending > 0) ? 1 : 0;
@@ -167,6 +186,7 @@ class CompareSession extends ChangeNotifier {
     TextEncoding? rightEncoding,
     TextEncoding? baseEncoding,
     TextEncoding? outputEncoding,
+    List<TextFile>? inputs,
   }) async {
     if (args.left == null) {
       return CompareSession(
@@ -175,12 +195,17 @@ class CompareSession extends ChangeNotifier {
         readOnly: args.readOnly,
       );
     }
-    final files = await Future.wait([
-      TextFile.read(args.left!, encoding: leftEncoding ?? encoding),
-      TextFile.read(args.right!, encoding: rightEncoding ?? encoding),
-      if (args.base != null)
-        TextFile.read(args.base!, encoding: baseEncoding ?? encoding),
-    ]);
+    if (inputs != null && inputs.length != (args.merge ? 3 : 2)) {
+      throw ArgumentError('输入文件数量与比较模式不符');
+    }
+    final files =
+        inputs ??
+        await Future.wait([
+          TextFile.read(args.left!, encoding: leftEncoding ?? encoding),
+          TextFile.read(args.right!, encoding: rightEncoding ?? encoding),
+          if (args.base != null)
+            TextFile.read(args.base!, encoding: baseEncoding ?? encoding),
+        ]);
     TextFile? output;
     if (args.output != null) {
       output = await File(args.output!).exists()
@@ -261,7 +286,47 @@ class CompareSession extends ChangeNotifier {
     notifyListeners();
   }
 
-  void inputSaved() {
+  void inputSaved({int? side}) {
+    saveEncodings.remove(side);
+    saveEols.remove(side);
+    notifyListeners();
+  }
+
+  void setSaveEncoding(int side, TextEncoding encoding) {
+    if (readOnly || isMerge && side != 2) return;
+    final controller = side == 0
+        ? leftEditor
+        : side == 1
+        ? rightEditor
+        : resultEditor!;
+    TextFile.encode(controller.text, encoding);
+    saveEncodings[side] = encoding;
+    notifyListeners();
+  }
+
+  void setSaveEol(int side, String? eol) {
+    if (readOnly || isMerge && side != 2) return;
+    if (eol == null) {
+      saveEols.remove(side);
+    } else {
+      saveEols[side] = eol;
+    }
+    notifyListeners();
+  }
+
+  void reloadInput(int side, TextFile file) {
+    if (isMerge) throw StateError('合并输入需重新创建合并会话');
+    final controller = side == 0 ? leftEditor : rightEditor;
+    if (side == 0) {
+      left = file;
+    } else {
+      right = file;
+    }
+    saveEncodings.remove(side);
+    saveEols.remove(side);
+    controller.text = file.text;
+    controller.clearHistory();
+    schedule();
     notifyListeners();
   }
 
@@ -484,22 +549,29 @@ class CompareSession extends ChangeNotifier {
     bool force = false,
     TextEncoding? encoding,
     String? eol,
+    bool usePendingFormat = true,
   }) async {
     if (readOnly) throw StateError('当前为只读模式');
     if (pending > 0) throw StateError('还有 $pending 处冲突未处理');
     output ??= (TextFile.empty(base?.original ?? right.original)
       ..encoding = (base ?? right).encoding);
     final snapshot = resultEditor!.text;
+    final pendingEncoding = saveEncodings[2], pendingEol = saveEols[2];
+    final saveEncoding =
+        encoding ?? (usePendingFormat ? pendingEncoding : null);
+    final saveEol = eol ?? (usePendingFormat ? pendingEol : null);
     await output!.save(
       snapshot,
       destination: destination,
       backup: backup,
       overwriteExternal: force,
-      asEncoding: encoding,
-      forcedEol: eol,
+      asEncoding: saveEncoding,
+      forcedEol: saveEol,
     );
     _savedResult = snapshot;
     savedMerge = true;
+    if (saveEncodings[2] == pendingEncoding) saveEncodings.remove(2);
+    if (saveEols[2] == pendingEol) saveEols.remove(2);
     notifyListeners();
   }
 

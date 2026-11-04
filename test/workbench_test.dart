@@ -10,7 +10,8 @@ import 'package:fmerge/core/settings.dart';
 import 'package:fmerge/core/merge_labels.dart';
 import 'package:fmerge/ui/code_pane.dart';
 import 'package:fmerge/ui/workbench.dart';
-import 'package:fmerge/ui/git_dialog.dart';
+import 'package:fmerge/ui/toolbar_action.dart';
+import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 
 Future<void> ready(WidgetTester tester) async {
   await tester.runAsync(() async {
@@ -26,6 +27,110 @@ Future<void> ready(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('最小窗口中核心工具直接可用，显示选项折叠后仍保留文档', (tester) async {
+    tester.view.physicalSize = const Size(920, 680);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final lines = List.generate(30, (i) => 'line $i');
+    final changed = [...lines]..[15] = 'changed';
+    final s = CompareSession(
+      TextFile.empty(lines.join('\n')),
+      TextFile.empty(changed.join('\n')),
+    );
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: s),
+    );
+    await ready(tester);
+    for (final tooltip in ['保存', '下一处差异 · F7', '使用左侧差异块', '启用左侧编辑']) {
+      expect(find.byTooltip(tooltip).hitTestable(), findsOneWidget);
+    }
+    await tester.tap(find.byTooltip('显示与比较选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
+    );
+    await tester.pumpAndSettle();
+    expect(s.contextOnly, true);
+    expect(s.rightEditor.text, changed.join('\n'));
+    await tester.tap(find.byTooltip('启用左侧编辑'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widgetList<CodePane>(find.byType(CodePane)).first.readOnly,
+      false,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('跳转行校验范围并保持对话框，成功后恢复目标编辑器焦点', (tester) async {
+    final s = CompareSession(
+      TextFile.empty('a\nb\nc'),
+      TextFile.empty('a\nb\nc'),
+    );
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: s),
+    );
+    await ready(tester);
+    expect(
+      tester
+          .widget<ToolbarAction>(
+            find.byWidgetPredicate(
+              (w) => w is ToolbarAction && w.tooltip == '下一处差异 · F7',
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyG);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    for (final value in ['0', '4', 'invalid']) {
+      await tester.enterText(find.byType(TextFormField), value);
+      await tester.tap(find.text('跳转'));
+      await tester.pumpAndSettle();
+      expect(find.text('行号范围为 1–3'), findsOneWidget);
+      expect(s.rightEditor.selection.extentIndex, 0);
+    }
+    await tester.enterText(find.byType(TextFormField), '3');
+    await tester.tap(find.text('跳转'));
+    await tester.pumpAndSettle();
+    expect(find.text('跳转到行'), findsNothing);
+    expect(s.rightEditor.selection.extentIndex, 2);
+    expect(
+      tester.widgetList<CodePane>(find.byType(CodePane)).last.focus.hasFocus,
+      true,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('撤销与重做反映当前编辑栏的历史及只读状态', (tester) async {
+    final s = CompareSession(TextFile.empty('left'), TextFile.empty('right'));
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: s),
+    );
+    await ready(tester);
+    ToolbarAction action(String label) => tester.widget<ToolbarAction>(
+      find.byWidgetPredicate(
+        (widget) => widget is ToolbarAction && widget.tooltip == label,
+      ),
+    );
+    expect(action('撤销').onPressed, isNull);
+    s.rightEditor.runRevocableOp(() => s.rightEditor.text = 'edited');
+    await tester.pump(const Duration(milliseconds: 170));
+    await ready(tester);
+    expect(action('撤销').onPressed, isNotNull);
+    await tester.tap(find.byTooltip('撤销'));
+    await tester.pump(const Duration(milliseconds: 170));
+    await ready(tester);
+    expect(s.rightEditor.text, 'right');
+    expect(action('重做').onPressed, isNotNull);
+    await tester.tapAt(tester.getCenter(find.byType(CodePane).first));
+    await tester.pumpAndSettle();
+    expect(action('撤销').onPressed, isNull);
+    expect(action('重做').onPressed, isNull);
+  });
+
   testWidgets('手选语言不改变编辑内容，左右独立且交换后跟随文件', (tester) async {
     tester.view.physicalSize = const Size(920, 680);
     tester.view.devicePixelRatio = 1;
@@ -82,92 +187,21 @@ void main() {
     expect(languageFor('main.rs'), 'rust');
     expect(languageFor('unknown'), 'text');
   });
-  testWidgets('Git 界面只暂存勾选的块，并可从 Staged 取消暂存', (tester) async {
-    tester.view.physicalSize = const Size(920, 680);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final dir = Directory.systemTemp.createTempSync('fmerge-git-ui-');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final file = File('${dir.path}/file');
-    final lines = List.generate(30, (i) => 'line $i');
-    final original = '${lines.join('\n')}\n';
-    Future<String> git(List<String> args) async {
-      final result = await Process.run('git', args, workingDirectory: dir.path);
-      expect(result.exitCode, 0, reason: '${result.stderr}');
-      return result.stdout as String;
-    }
-
-    await tester.runAsync(() async {
-      await git(['init', '-q']);
-      await file.writeAsString(original);
-      await git(['add', '.']);
-      await git([
-        '-c',
-        'user.name=Test',
-        '-c',
-        'user.email=test@example.invalid',
-        '-c',
-        'commit.gpgsign=false',
-        '-c',
-        'core.hooksPath=/dev/null',
-        'commit',
-        '-qm',
-        'fixture',
-      ]);
-      lines[3] = 'selected';
-      lines[25] = 'keep unstaged';
-      await file.writeAsString('${lines.join('\n')}\n');
-    });
-    Future<void> waitFor(String text) async {
-      await tester.pump();
-      await tester.runAsync(() async {
-        final deadline = DateTime.now().add(const Duration(seconds: 10));
-        while (find.text(text).evaluate().isEmpty ||
-            find.byType(LinearProgressIndicator).evaluate().isNotEmpty) {
-          if (DateTime.now().isAfter(deadline)) fail('Git 界面操作超时：$text');
-          await Future<void>.delayed(const Duration(milliseconds: 20));
-          await tester.pump();
-        }
-      });
-      await tester.pumpAndSettle();
-    }
-
-    // 真实子进程必须从 runAsync 启动，避免其 I/O 被测试虚拟时钟挂起。
-    await tester.runAsync(
-      () => tester.pumpWidget(MaterialApp(home: GitDialog(path: file.path))),
-    );
-    await waitFor('差异块 2');
-    await tester.tap(find.byType(Checkbox).first);
-    await tester.pumpAndSettle();
-    await tester.runAsync(() => tester.tap(find.text('暂存所选块')));
-    await waitFor('所选差异块已暂存，其余修改保留在工作区');
-    await tester.runAsync(() async {
-      final index = await git(['show', ':file']);
-      expect(index, contains('selected'));
-      expect(index, isNot(contains('keep unstaged')));
-    });
-    await tester.runAsync(() => tester.tap(find.text('Staged · 已暂存')));
-    await waitFor('差异块 1');
-    await tester.tap(find.byType(Checkbox).first);
-    await tester.pumpAndSettle();
-    await tester.runAsync(() => tester.tap(find.text('取消暂存所选块')));
-    await waitFor('此文件没有已暂存修改');
-    await tester.runAsync(() async {
-      expect(await git(['show', ':file']), original);
-      expect(await file.readAsString(), '${lines.join('\n')}\n');
-    });
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('欢迎页不点击任何控件即可使用 Ctrl O 打开比较', (tester) async {
+  testWidgets('欢迎页 Ctrl O 直接打开系统多选，取消后保持欢迎页', (tester) async {
+    final previous = FileSelectorPlatform.instance;
+    final picker = _Picker();
+    FileSelectorPlatform.instance = picker;
+    addTearDown(() => FileSelectorPlatform.instance = previous);
     await tester.pumpWidget(FmergeApp(settings: Settings(persist: false)));
     await tester.pumpAndSettle();
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
-    expect(find.text('打开文件比较'), findsOneWidget);
+    expect(picker.calls, 1);
+    expect(find.text('打开文件比较'), findsNothing);
+    expect(find.text('新建文本比较'), findsOneWidget);
+    expect(find.text('三方合并'), findsNothing);
   });
 
   for (final size in [const Size(1100, 760), const Size(920, 680)]) {
@@ -231,16 +265,26 @@ void main() {
       FmergeApp(settings: Settings(persist: false), initial: s),
     );
     await ready(tester);
-    await tester.tap(find.byTooltip('仅显示差异及前后 3 行'));
+    await tester.tap(find.byTooltip('显示与比较选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
+    );
     await tester.pumpAndSettle();
     expect(s.contextOnly, true);
     expect(s.leftEditor.diffLayout!.totalRows, 9);
     expect(s.rightEditor.text, right.join('\n'));
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('显示整个文件'));
+    await tester.tap(find.byTooltip('显示与比较选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
+    );
     await tester.pumpAndSettle();
     expect(s.leftEditor.diffLayout!.totalRows, 80);
-    await tester.tap(find.byTooltip('交换左右文件'));
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('交换左右文件'));
     await ready(tester);
     expect(s.leftEditor.text, right.join('\n'));
     expect(s.rightEditor.text, lines.join('\n'));
@@ -248,10 +292,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     expect(s.diff!.changes.length, 1);
-    await tester.tap(find.byTooltip('隐藏空白字符差异'));
+    await tester.tap(find.byTooltip('显示与比较选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<String>, '忽略空白差异'),
+    );
     await ready(tester);
     expect(s.diff!.changes, isEmpty);
-    await tester.tap(find.byTooltip('显示空白字符差异'));
+    await tester.tap(find.byTooltip('显示与比较选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<String>, '忽略空白差异'),
+    );
     await ready(tester);
     expect(s.diff!.changes.length, 1);
     expect(tester.takeException(), isNull);
@@ -319,7 +371,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     await tester.runAsync(() async {
-      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.tap(find.byTooltip('保存'));
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (s.rightDirty && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -334,7 +386,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     await tester.runAsync(() async {
-      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.tap(find.byTooltip('保存'));
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (find.text('磁盘文件已经改变').evaluate().isEmpty &&
           DateTime.now().isBefore(deadline)) {
@@ -363,7 +415,7 @@ void main() {
       ),
     );
     await ready(tester);
-    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.tap(find.byTooltip('保存'));
     await tester.pump();
     expect(find.textContaining('请先确认剩余'), findsOneWidget);
     expect(s.savedMerge, false);
@@ -377,4 +429,17 @@ void main() {
     expect(code, isNull);
     expect(s.pending, 1);
   });
+}
+
+class _Picker extends FileSelectorPlatform {
+  int calls = 0;
+  @override
+  Future<List<XFile>> openFiles({
+    List<XTypeGroup>? acceptedTypeGroups,
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    calls++;
+    return [];
+  }
 }

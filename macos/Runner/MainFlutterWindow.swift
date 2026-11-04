@@ -24,11 +24,12 @@ class MainFlutterWindow: NSWindow {
 }
 
 
-/// 只保存用户在 NSOpenPanel 选择的目录书签，权限随沙盒约束。
+/// 保存用户明确选择的文件与目录书签，权限随沙盒约束。
 final class FmergeAccess {
   private let channel: FlutterMethodChannel
   private var active: [URL] = []
   private let key = "fmerge.authorizedDirectories"
+  private let filesKey = "fmerge.authorizedFiles"
   #if FMERGE_INTEGRATION_TEST
   private var savedClipboard: [[NSPasteboard.PasteboardType: Data]]?
   #endif
@@ -46,10 +47,24 @@ final class FmergeAccess {
       } else if call.method == "grant",
                 let args = call.arguments as? [String: String], let path = args["path"] {
         self.grant(path: path, reply: reply)
+      } else if call.method == "rememberFiles",
+                let args = call.arguments as? [String: Any], let paths = args["paths"] as? [String] {
+        do {
+          var saved = UserDefaults.standard.dictionary(forKey: self.filesKey) as? [String: Data] ?? [:]
+          for path in paths {
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            let data = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+            if url.startAccessingSecurityScopedResource() { self.active.append(url) }
+            saved[url.path] = data
+          }
+          UserDefaults.standard.set(saved, forKey: self.filesKey)
+          reply(nil)
+        } catch { reply(FlutterError(code: "bookmarkFailed", message: error.localizedDescription, details: nil)) }
       } else if call.method == "revoke" {
         self.active.forEach { $0.stopAccessingSecurityScopedResource() }
         self.active.removeAll()
         UserDefaults.standard.removeObject(forKey: self.key)
+        UserDefaults.standard.removeObject(forKey: self.filesKey)
         reply(nil)
       }
       else { reply(FlutterMethodNotImplemented) }
@@ -96,14 +111,22 @@ final class FmergeAccess {
   }
   #endif
   private func restore() {
-    for data in UserDefaults.standard.array(forKey: key) as? [Data] ?? [] {
+    let directories = UserDefaults.standard.array(forKey: key) as? [Data] ?? []
+    var files = UserDefaults.standard.dictionary(forKey: filesKey) as? [String: Data] ?? [:]
+    for data in directories + Array(files.values) {
       var stale = false
       if let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope],
                            relativeTo: nil, bookmarkDataIsStale: &stale),
          url.startAccessingSecurityScopedResource() {
         active.append(url)
+        if stale, let renewed = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil),
+           files.values.contains(data) {
+          files = files.filter { $0.value != data }
+          files[url.path] = renewed
+        }
       }
     }
+    UserDefaults.standard.set(files, forKey: filesKey)
   }
   private func grant(path: String, reply: @escaping FlutterResult) {
     let requested = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()

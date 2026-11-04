@@ -8,6 +8,7 @@ class Settings {
   final bool persist;
   double fontSize = 13;
   bool highlight = true,
+      toolbarLabels = true,
       backup = true,
       showWhitespace = false,
       ignoreCase = false,
@@ -40,6 +41,7 @@ class Settings {
         24,
       );
       settings.highlight = json['highlight'] as bool? ?? true;
+      settings.toolbarLabels = json['toolbarLabels'] as bool? ?? true;
       settings.backup = json['backup'] as bool? ?? true;
       settings.showWhitespace = json['showWhitespace'] as bool? ?? false;
       settings.ignoreCase = json['ignoreCase'] as bool? ?? false;
@@ -66,6 +68,7 @@ class Settings {
       jsonEncode({
         'fontSize': fontSize,
         'highlight': highlight,
+        'toolbarLabels': toolbarLabels,
         'backup': backup,
         'showWhitespace': showWhitespace,
         'ignoreCase': ignoreCase,

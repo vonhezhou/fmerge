@@ -3,11 +3,20 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
-/// macOS 仅恢复用户明确授权的目录；不移除沙盒，也不自动扩展访问范围。
+/// macOS 仅恢复用户明确选择的文件与目录；不移除沙盒，也不自动扩展访问范围。
 class DirectoryAccess {
   static const channel = MethodChannel('fmerge/access');
   static Future<void> restore() async {
     if (Platform.isMacOS) await channel.invokeMethod<void>('restore');
+  }
+
+  /// 仅用于系统选择器刚刚选中的文件，保存其现有授权以供最近记录恢复。
+  static Future<void> rememberFiles(Iterable<String> paths) async {
+    if (Platform.isMacOS) {
+      await channel.invokeMethod<void>('rememberFiles', {
+        'paths': paths.toList(),
+      });
+    }
   }
 
   static Future<bool> grant(String path) async {

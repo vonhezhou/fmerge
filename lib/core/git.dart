@@ -42,6 +42,28 @@ class GitPatch {
   }
   final String header;
   final List<String> hunks;
+
+  /// 选择工作区真实行范围相交的修改块，不将周围上下文误当成修改。
+  Set<int> hunksForLines(int start, int end) {
+    if (start < 0 || end <= start) return {};
+    final selected = <int>{};
+    for (var i = 0; i < hunks.length; i++) {
+      final lines = hunks[i].split('\n');
+      final header = RegExp(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
+          .firstMatch(lines.first);
+      if (header == null) continue;
+      final count = int.parse(header[2] ?? '1');
+      var line = int.parse(header[1]!) - (count == 0 ? 0 : 1);
+      for (final text in lines.skip(1)) {
+        if (text.startsWith('+') || text.startsWith('-')) {
+          if (line >= start && line < end) selected.add(i);
+        }
+        if (text.startsWith('+') || text.startsWith(' ')) line++;
+      }
+    }
+    return selected;
+  }
+
   String select(Set<int> selected) {
     if (selected.isEmpty || selected.any((i) => i < 0 || i >= hunks.length)) {
       throw StateError('请选择有效的差异块');

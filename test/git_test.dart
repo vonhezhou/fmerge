@@ -8,6 +8,32 @@ import 'package:fmerge/core/merge_labels.dart';
 import 'package:fmerge/session.dart';
 
 void main() {
+  test('代码行选择只匹配实际修改，不把上下文和结束行边界纳入暂存', () {
+    final patch = GitPatch.parse('''diff --git a/file b/file
+--- a/file
++++ b/file
+@@ -1,3 +1,3 @@
+ context
+-old
++new
+ after
+@@ -20,2 +20,1 @@
+-deleted
+ tail
+''');
+    expect(patch.hunksForLines(0, 1), isEmpty);
+    expect(patch.hunksForLines(1, 2), {0});
+    expect(patch.hunksForLines(2, 3), isEmpty);
+    expect(patch.hunksForLines(19, 20), {1});
+    expect(patch.hunksForLines(0, 20), {0, 1});
+    expect(patch.hunksForLines(2, 2), isEmpty);
+    final deletion = GitPatch.parse('''--- a/file
++++ b/file
+@@ -1 +0,0 @@
+-last line
+''');
+    expect(deletion.hunksForLines(0, 1), {0});
+  });
   late Directory dir;
   Future<String> git(List<String> args) async {
     final result = await Process.run('git', args, workingDirectory: dir.path);

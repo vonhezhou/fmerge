@@ -235,7 +235,17 @@ class TextFile {
         !exists) {
       throw FileSystemException('符号链接目标不存在或无法访问，已取消保存', requestedPath);
     }
-    if (exists) target = File(await target.resolveSymbolicLinks());
+    if (exists) {
+      target = File(await target.resolveSymbolicLinks());
+    } else {
+      // 新文件也统一父目录别名，避免下次保存将 /var 与 /private/var 误判为外部替换。
+      target = File(
+        p.join(
+          await target.parent.resolveSymbolicLinks(),
+          p.basename(target.path),
+        ),
+      );
+    }
     final same =
         path != null &&
         p.equals(File(path!).absolute.path, File(requestedPath).absolute.path);

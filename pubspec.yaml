@@ -18,6 +18,7 @@ dependencies:
   charset: ^2.0.1
   dart_big5: ^0.0.5
 dev_dependencies:
+  file_selector_platform_interface: ^2.7.0
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0

@@ -12,6 +12,21 @@ class LaunchOptions {
   final String? left, right, base, output;
   final bool readOnly, autoClose, help, version;
   bool get merge => base != null;
+
+  /// 生成可复制的 Git 配置；只展示，不修改用户的全局配置。
+  static String gitConfiguration(String executable) {
+    String quote(String value) => "'${value.replaceAll("'", "'\"'\"'")}'";
+    final tool = quote(executable);
+    final diff = '$tool "\$LOCAL" "\$REMOTE"';
+    final merge =
+        '$tool --base "\$BASE" --local "\$LOCAL" --remote "\$REMOTE" --output "\$MERGED"';
+    return '''git config --global diff.tool fmerge
+git config --global difftool.fmerge.cmd ${quote(diff)}
+git config --global merge.tool fmerge
+git config --global mergetool.fmerge.cmd ${quote(merge)}
+git config --global mergetool.fmerge.trustExitCode true''';
+  }
+
   static LaunchOptions parse(List<String> args) {
     final values = <String, String>{};
     final positional = <String>[];
