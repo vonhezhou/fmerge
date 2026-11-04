@@ -1816,7 +1816,46 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         ],
       ),
     );
-    if (!s.isMerge) return top;
+    if (!s.isMerge) {
+      if (!s.contextOnly) return top;
+      final colors = Theme.of(context).colorScheme;
+      final hidden = s.leftEditor.diffLayout?.rowLabels.length ?? 0;
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: .10),
+              border: Border(bottom: BorderSide(color: colors.outline)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.unfold_less, size: 16, color: colors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '仅看差异 · 前后各 ${s.contextLines} 行'
+                    ' · ${!s.comparisonCurrent
+                        ? '计算中…'
+                        : hidden > 0
+                        ? '已省略 $hidden 段未改动内容'
+                        : '当前无可省略内容'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: colors.primary),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _toggleContext(),
+                  child: const Text('显示全文'),
+                ),
+              ],
+            ),
+          ),
+          Expanded(child: top),
+        ],
+      );
+    }
     return LayoutBuilder(
       builder: (context, c) => Column(
         children: [

@@ -1445,11 +1445,21 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
     for (final entry in layout.rowLabels.entries) {
       if (entry.key < first || entry.key >= last) continue;
+      final y = origin.dy + paddingTop + _rowStart(entry.key) * _preferredLineHeight - _verticalViewport.pixels;
+      final color = _textStyle.color ?? const Color(0xff758196);
+      final rect = Rect.fromLTWH(origin.dx, y, size.width, _preferredLineHeight);
+      // 省略行固定在视口中，避免横向滚动后丢失片段边界提示。
+      canvas.drawRect(rect, Paint()..color = color.withValues(alpha: .08));
+      final edge = Paint()..color = color.withValues(alpha: .20)..strokeWidth = 1;
+      canvas.drawLine(rect.topLeft, rect.topRight, edge);
+      canvas.drawLine(rect.bottomLeft, rect.bottomRight, edge);
       final painter = TextPainter(text: TextSpan(text: entry.value,
-        style: _textStyle.copyWith(color: const Color(0xff758196))),
-        textDirection: TextDirection.ltr)..layout();
+        style: _textStyle.copyWith(color: color.withValues(alpha: .75),
+          fontFamily: 'sans-serif', fontWeight: FontWeight.w500)),
+        maxLines: 1, ellipsis: '…',
+        textDirection: TextDirection.ltr)..layout(maxWidth: max(1.0, size.width - paddingLeft - paddingRight));
       painter.paint(canvas, Offset(origin.dx + paddingLeft,
-        origin.dy + paddingTop + _rowStart(entry.key) * _preferredLineHeight - _verticalViewport.pixels));
+        y + (_preferredLineHeight - painter.height) / 2));
       painter.dispose();
     }
     for (final paragraph in _displayParagraphs) {

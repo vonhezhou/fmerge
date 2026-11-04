@@ -283,9 +283,12 @@ void main() {
     expect(s.contextOnly, true);
     expect(s.leftEditor.diffLayout!.totalRows, 9);
     expect(s.rightEditor.text, right.join('\n'));
+    expect(find.text('仅看差异 · 前后各 3 行 · 已省略 2 段未改动内容'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
+    await tester.tap(find.widgetWithText(TextButton, '显示全文'));
     await tester.pumpAndSettle();
+    expect(s.contextOnly, false);
+    expect(find.text('显示全文'), findsNothing);
     expect(s.leftEditor.diffLayout!.totalRows, 80);
     await tester.tap(find.byKey(const ValueKey('command-swapSides')));
     await ready(tester);
