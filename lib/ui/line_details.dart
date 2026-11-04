@@ -13,6 +13,8 @@ class LineDetails extends StatelessWidget {
     required this.onClose,
     this.merge = false,
     this.conflict = false,
+    this.movementLabel,
+    this.onFollowMove,
   });
   final DiffRow? row;
   final List<int> tabSizes;
@@ -20,6 +22,8 @@ class LineDetails extends StatelessWidget {
   final bool merge;
   final bool conflict;
   final VoidCallback onClose;
+  final String? movementLabel;
+  final VoidCallback? onFollowMove;
 
   TextSpan _span(
     String text,
@@ -155,6 +159,16 @@ class LineDetails extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.all(4),
               child: Icon(Icons.info_outline, size: 16, color: muted),
+            ),
+          ),
+        if (movementLabel != null)
+          TextButton.icon(
+            key: const ValueKey('follow-moved-block'),
+            onPressed: onFollowMove,
+            icon: const Icon(Icons.swap_horiz, size: 16, color: movedInk),
+            label: Text(
+              movementLabel!,
+              style: const TextStyle(color: movedInk, fontSize: 11),
             ),
           ),
         IconButton(

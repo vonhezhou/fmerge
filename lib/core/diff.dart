@@ -37,14 +37,16 @@ class DiffDocument {
     this.changes,
     this.hunkRows,
     this.elapsedMicros,
-    this.timedOut,
-  );
+    this.timedOut, {
+    this.movedBlocks = const [],
+  });
   final List<String> left, right;
   final List<DiffRow> rows;
   final List<SequenceChange> changes;
   final List<int> hunkRows;
   final int elapsedMicros;
   final bool timedOut;
+  final List<MovedBlock> movedBlocks;
   int get added => changes.fold(0, (n, c) => n + c.bEnd - c.bStart);
   int get removed => changes.fold(0, (n, c) => n + c.aEnd - c.aStart);
 
@@ -84,14 +86,26 @@ List<String> splitLines(String text) => text.split('\n');
 
 enum WhitespaceMode { exact, trailing, all, edges }
 
+enum InlineDiffMode { characters, words }
+
+/// 仅标记精确匹配且来源唯一的移动，不参与采用区块或合并判断。
+class MovedBlock {
+  const MovedBlock(this.leftStart, this.rightStart, this.length);
+  final int leftStart, rightStart, length;
+}
+
 class CompareOptions {
   const CompareOptions({
     this.whitespace = WhitespaceMode.exact,
     this.ignoreCase = false,
     this.ignoreEol = true,
+    this.inlineMode = InlineDiffMode.characters,
+    this.detectMoves = true,
   });
   final WhitespaceMode whitespace;
   final bool ignoreCase, ignoreEol;
+  final InlineDiffMode inlineMode;
+  final bool detectMoves;
   String key(String line) {
     var value = switch (whitespace) {
       WhitespaceMode.exact => line,
@@ -107,9 +121,12 @@ class CompareOptions {
       other is CompareOptions &&
       other.whitespace == whitespace &&
       other.ignoreCase == ignoreCase &&
-      other.ignoreEol == ignoreEol;
+      other.ignoreEol == ignoreEol &&
+      other.inlineMode == inlineMode &&
+      other.detectMoves == detectMoves;
   @override
-  int get hashCode => Object.hash(whitespace, ignoreCase, ignoreEol);
+  int get hashCode =>
+      Object.hash(whitespace, ignoreCase, ignoreEol, inlineMode, detectMoves);
 }
 
 class DiffInput {
@@ -196,7 +213,7 @@ DiffDocument compare(DiffInput input) {
           a[l].length + b[r].length <= 24000;
       if (l != null && r != null && !refine) degraded = true;
       final marks = refine
-          ? _inline(a[l], b[r])
+          ? _inline(a[l], b[r], input.options.inlineMode)
           : (
               l == null ? <TextRangeMark>[] : [TextRangeMark(0, a[l].length)],
               r == null ? <TextRangeMark>[] : [TextRangeMark(0, b[r].length)],
@@ -227,13 +244,45 @@ DiffDocument compare(DiffInput input) {
     starts,
     watch.elapsedMicroseconds,
     degraded,
+    movedBlocks: input.options.detectMoves
+        ? _movedBlocks(a, b, result.changes)
+        : const [],
   );
 }
 
-(List<TextRangeMark>, List<TextRangeMark>) _inline(String a, String b) {
+(List<TextRangeMark>, List<TextRangeMark>) _inline(
+  String a,
+  String b,
+  InlineDiffMode mode,
+) {
   if (a == b) return (const [], const []);
   // 使用字素簇避免高亮切开 Emoji、代理对或组合字符。
-  final ac = a.characters.toList(), bc = b.characters.toList();
+  List<String> tokens(String text) {
+    final chars = text.characters;
+    if (mode == InlineDiffMode.characters) return chars.toList();
+    // 标识符/数字作为一个词；符号和字素独立，空白连续成组。
+    final result = <String>[];
+    final word = RegExp(r'^[\p{L}\p{N}_]+$', unicode: true);
+    final whitespace = RegExp(r'^\s+$', unicode: true);
+    var buffer = StringBuffer(), previous = -1;
+    for (final char in chars) {
+      final kind = word.hasMatch(char)
+          ? 0
+          : whitespace.hasMatch(char)
+          ? 1
+          : 2;
+      if (kind != previous || kind == 2) {
+        if (buffer.isNotEmpty) result.add(buffer.toString());
+        buffer = StringBuffer();
+      }
+      buffer.write(char);
+      previous = kind;
+    }
+    if (buffer.isNotEmpty) result.add(buffer.toString());
+    return result;
+  }
+
+  final ac = tokens(a), bc = tokens(b);
   final result = myers(ac, bc, budget: const Duration(milliseconds: 4));
   List<int> offsets(List<String> chars) {
     final list = [0];
@@ -249,6 +298,77 @@ DiffDocument compare(DiffInput input) {
     [for (final c in result.changes) TextRangeMark(ao[c.aStart], ao[c.aEnd])],
     [for (final c in result.changes) TextRangeMark(bo[c.bStart], bo[c.bEnd])],
   );
+}
+
+List<MovedBlock> _movedBlocks(
+  List<String> a,
+  List<String> b,
+  List<SequenceChange> changes,
+) {
+  if (changes.length < 2) return const [];
+  final removed = <int>{}, added = <int>{};
+  for (final c in changes) {
+    for (var i = c.aStart; i < c.aEnd; i++) {
+      removed.add(i);
+    }
+    for (var i = c.bStart; i < c.bEnd; i++) {
+      added.add(i);
+    }
+  }
+  // 以整份输入中的唯一非空行作锚点，避免把重复代码或复制误报为移动。
+  Map<String, int> unique(List<String> lines) {
+    final result = <String, int>{};
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].trim().isEmpty) continue;
+      result.update(lines[i], (_) => -1, ifAbsent: () => i);
+    }
+    return result;
+  }
+
+  final left = unique(a), right = unique(b);
+  final usedA = <int>{}, usedB = <int>{};
+  final blocks = <MovedBlock>[];
+  for (final i in removed) {
+    final j = right[a[i]];
+    if (left[a[i]] != i ||
+        j == null ||
+        j < 0 ||
+        !added.contains(j) ||
+        usedA.contains(i) ||
+        usedB.contains(j)) {
+      continue;
+    }
+    var startA = i, startB = j, endA = i + 1, endB = j + 1;
+    while (removed.contains(startA - 1) &&
+        added.contains(startB - 1) &&
+        !usedA.contains(startA - 1) &&
+        !usedB.contains(startB - 1) &&
+        a[startA - 1] == b[startB - 1]) {
+      startA--;
+      startB--;
+    }
+    while (removed.contains(endA) &&
+        added.contains(endB) &&
+        !usedA.contains(endA) &&
+        !usedB.contains(endB) &&
+        a[endA] == b[endB]) {
+      endA++;
+      endB++;
+    }
+    // 单个短行（如括号）不足以说明代码移动。
+    if (endA - startA < 2 ||
+        a.sublist(startA, endA).join().trim().length < 16) {
+      continue;
+    }
+    blocks.add(MovedBlock(startA, startB, endA - startA));
+    for (var k = startA; k < endA; k++) {
+      usedA.add(k);
+    }
+    for (var k = startB; k < endB; k++) {
+      usedB.add(k);
+    }
+  }
+  return blocks;
 }
 
 /// 从真实文档区间复制；视觉占位永远不参与复制。

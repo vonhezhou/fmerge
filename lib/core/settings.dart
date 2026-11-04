@@ -13,6 +13,8 @@ class Settings {
   int contextLines = 3;
   bool contextOnly = false;
   bool showOverview = true, showLineDetails = true;
+  bool wordWrap = false, detectMoves = true;
+  InlineDiffMode inlineMode = InlineDiffMode.characters;
   final shortcuts = ShortcutPreferences();
   bool get ignoreWhitespace => whitespace != WhitespaceMode.exact;
   set ignoreWhitespace(bool value) =>
@@ -29,6 +31,8 @@ class Settings {
     whitespace: whitespace,
     ignoreCase: ignoreCase,
     ignoreEol: ignoreEol,
+    inlineMode: inlineMode,
+    detectMoves: detectMoves,
   );
   static String get directory {
     final home = Platform.environment['HOME'] ?? '.';
@@ -68,6 +72,11 @@ class Settings {
     contextOnly = flag('contextOnly', false);
     showOverview = flag('showOverview', true);
     showLineDetails = flag('showLineDetails', true);
+    wordWrap = flag('wordWrap', false);
+    detectMoves = flag('detectMoves', true);
+    inlineMode = json['inlineMode'] == InlineDiffMode.words.name
+        ? InlineDiffMode.words
+        : InlineDiffMode.characters;
     highlight = flag('highlight', true);
     toolbarLabels = flag('toolbarLabels', true);
     backup = flag('backup', true);
@@ -88,6 +97,9 @@ class Settings {
     'contextOnly': contextOnly,
     'showOverview': showOverview,
     'showLineDetails': showLineDetails,
+    'wordWrap': wordWrap,
+    'detectMoves': detectMoves,
+    'inlineMode': inlineMode.name,
     'highlight': highlight,
     'toolbarLabels': toolbarLabels,
     'backup': backup,

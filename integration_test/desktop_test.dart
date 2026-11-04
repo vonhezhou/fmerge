@@ -16,6 +16,7 @@ import 'package:fmerge/core/git.dart';
 import 'package:fmerge/core/merge_labels.dart';
 import 'package:fmerge/core/launch.dart';
 import 'package:fmerge/core/settings.dart';
+import 'package:fmerge/core/diff.dart' show InlineDiffMode;
 import 'package:fmerge/core/shortcuts.dart';
 import 'package:fmerge/ui/code_pane.dart';
 
@@ -500,6 +501,61 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('正则无效'), findsOneWidget);
     await snapshot('find-invalid');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await windowManager.setSize(const Size(1100, 800));
+    final context = List.generate(
+      12,
+      (i) => 'unchanged context $i;',
+    ).join('\n');
+    const moved = 'int movedValue = 42;\nreturn movedValue;';
+    final long = '\tfinal getUserName = "${'中文 long_value ' * 9}";';
+    final features = CompareSession(
+      TextFile.empty('start\n$moved\n$long\n$context\nend'),
+      TextFile.empty(
+        'start\n${long.replaceFirst('getUserName', 'getUserNames')}\n$context\n$moved\nend',
+      ),
+    );
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: boundary,
+        child: FmergeApp(
+          initial: features,
+          settings: Settings(persist: false)
+            ..wordWrap = true
+            ..inlineMode = InlineDiffMode.words,
+          nativeWindow: true,
+        ),
+      ),
+    );
+    await ready(features);
+    expect(features.diff!.movedBlocks, hasLength(1));
+    features.rightEditor.selection = const CodeLineSelection.collapsed(
+      index: 1,
+      offset: 12,
+    );
+    await snapshot('word-diff-wrap');
+    final move = features.diff!.movedBlocks.single;
+    features.leftEditor.selection = CodeLineSelection.collapsed(
+      index: move.leftStart,
+      offset: 0,
+    );
+    tester
+        .widgetList<CodePane>(find.byType(CodePane))
+        .first
+        .focus
+        .requestFocus();
+    await tester.pumpAndSettle();
+    await snapshot('moved-blocks');
+    await tester.tap(find.byKey(const ValueKey('follow-moved-block')));
+    await tester.pumpAndSettle();
+    expect(features.rightEditor.selection.extentIndex, move.rightStart);
+    features.leftEditor.selectAll();
+    await features.leftEditor.copy();
+    expect(
+      (await Clipboard.getData(Clipboard.kTextPlain))!.text,
+      features.leftEditor.text,
+    );
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/settings.dart';
+import '../core/diff.dart' show InlineDiffMode;
 import '../palette.dart';
 import 'git_settings.dart';
 import 'shortcut_settings.dart';
@@ -289,6 +290,28 @@ class _SettingsDialogState extends State<SettingsDialog> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _heading('比较与差异显示', '只影响差异显示；三方合并始终精确判断修改和冲突。'),
+      _card([
+        _toggle(
+          '长行自动换行',
+          '按较高一侧保留视觉空间，保持左右对齐，不改变文件换行。',
+          s.wordWrap,
+          (value) => s.wordWrap = value,
+        ),
+        _toggle(
+          '按单词显示行内差异',
+          '以完整标识符为单位突出变化；关闭后按字符显示。',
+          s.inlineMode == InlineDiffMode.words,
+          (value) => s.inlineMode = value
+              ? InlineDiffMode.words
+              : InlineDiffMode.characters,
+        ),
+        _toggle(
+          '识别移动代码块',
+          '双栏比较中以蓝色提示精确匹配的移动块；可在行详情跳转到另一侧。',
+          s.detectMoves,
+          (value) => s.detectMoves = value,
+        ),
+      ]),
       _card([
         _toggle(
           '忽略行首、行尾空白',

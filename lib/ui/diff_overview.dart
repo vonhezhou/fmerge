@@ -13,10 +13,12 @@ class DiffOverview extends StatelessWidget {
     required this.right,
     required this.scroll,
     required this.onSeek,
+    this.wordWrap = false,
   });
   final CodeDiffLayout? left, right;
   final ScrollController scroll;
   final ValueChanged<double>? onSeek;
+  final bool wordWrap;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -42,7 +44,9 @@ class DiffOverview extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   RepaintBoundary(
-                    child: CustomPaint(painter: _OverviewPainter(left, right)),
+                    child: CustomPaint(
+                      painter: _OverviewPainter(left, right, wordWrap),
+                    ),
                   ),
                   AnimatedBuilder(
                     animation: scroll,
@@ -79,17 +83,27 @@ class DiffOverview extends StatelessWidget {
 }
 
 class _OverviewPainter extends CustomPainter {
-  const _OverviewPainter(this.left, this.right);
+  _OverviewPainter(this.left, this.right, this.wordWrap)
+    : super(repaint: wordWrap ? left?.wrap : null);
   final CodeDiffLayout? left, right;
+  final bool wordWrap;
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = bg);
     void lane(CodeDiffLayout? layout, double x, Color color) {
       if (layout == null || layout.totalRows == 0) return;
+      final wrap = wordWrap ? layout.wrap : null;
+      final total = wrap != null && wrap.totalRows > 0
+          ? wrap.totalRows
+          : layout.totalRows;
       for (final entry in layout.rowColors.entries) {
         if (entry.value == bg) continue;
-        final top = entry.key / layout.totalRows * size.height;
-        final height = math.max(2.0, size.height / layout.totalRows);
+        final top =
+            (wrap?.rowStart(entry.key) ?? entry.key) / total * size.height;
+        final height = math.max(
+          2.0,
+          (wrap?.rowHeight(entry.key) ?? 1) * size.height / total,
+        );
         canvas.drawRect(
           Rect.fromLTWH(
             x,
@@ -97,7 +111,12 @@ class _OverviewPainter extends CustomPainter {
             7,
             height,
           ),
-          Paint()..color = entry.value == amber ? amber : color,
+          Paint()
+            ..color = entry.value == amber
+                ? amber
+                : entry.value == movedBg
+                ? movedInk
+                : color,
         );
       }
     }
@@ -108,7 +127,7 @@ class _OverviewPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_OverviewPainter old) =>
-      old.left != left || old.right != right;
+      old.left != left || old.right != right || old.wordWrap != wordWrap;
 }
 
 /// 滚动只重绘视口框，避免每一帧遍历整份文件的差异标记。

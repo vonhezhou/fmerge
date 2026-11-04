@@ -69,6 +69,18 @@ class CompareSession extends ChangeNotifier {
   List<InlineTarget> inlineChanges(int side) =>
       comparisonCurrent ? _inlineTargets[side] : const [];
 
+  /// 移动提示只用于双栏精确匹配，不改变差异块的采用语义。
+  int? movedCounterpart(int side, int line) {
+    if (!comparisonCurrent || isMerge) return null;
+    for (final block in diff!.movedBlocks) {
+      final start = side == 0 ? block.leftStart : block.rightStart;
+      if (line >= start && line < start + block.length) {
+        return (side == 0 ? block.rightStart : block.leftStart) + line - start;
+      }
+    }
+    return null;
+  }
+
   /// 始终使用未折叠的映射，避免把折叠提示或虚拟占位当作真实文本。
   int? fullRow(int side, int line) {
     final rows = (side == 0 ? _fullLeft : _fullRight)?.lineRows;
@@ -152,6 +164,7 @@ class CompareSession extends ChangeNotifier {
   int contextLines = 3;
   ContextRows? _context;
   CodeDiffLayout? _fullLeft, _fullRight;
+  final inputWrap = CodeDiffWrap();
   final _leftChange = _InputChange(), _rightChange = _InputChange();
 
   void swapSides() {
@@ -216,6 +229,7 @@ class CompareSession extends ChangeNotifier {
         },
         ranges: layout.ranges,
         showWhitespace: layout.showWhitespace,
+        wrap: inputWrap,
       );
     }
 
@@ -237,6 +251,7 @@ class CompareSession extends ChangeNotifier {
             rowColors: layout.rowColors,
             ranges: layout.ranges,
             showWhitespace: value,
+            wrap: inputWrap,
           );
     _fullLeft = update(_fullLeft);
     _fullRight = update(_fullRight);
@@ -560,12 +575,19 @@ class CompareSession extends ChangeNotifier {
         ];
       }
     }
+    for (final block in diff.movedBlocks) {
+      final start = left ? block.leftStart : block.rightStart;
+      for (var i = 0; i < block.length; i++) {
+        colors[rows[start + i]] = movedBg;
+      }
+    }
     return CodeDiffLayout(
       lineRows: rows,
       totalRows: diff.rows.length,
       rowColors: colors,
       ranges: ranges,
       showWhitespace: showWhitespace,
+      wrap: inputWrap,
     );
   }
 
@@ -600,6 +622,7 @@ class CompareSession extends ChangeNotifier {
       rowColors: colors,
       ranges: ranges,
       showWhitespace: showWhitespace,
+      wrap: inputWrap,
     );
   }
 

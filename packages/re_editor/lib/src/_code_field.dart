@@ -139,6 +139,17 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   double _horizontalScrollbarHeight;
   CodeLines _codes;
   CodeDiffLayout? _diffLayout;
+  final _localWrap = CodeDiffWrap();
+  List<Object?>? _wrapKey;
+  List<int> _wrapHeights = const [];
+  CodeDiffWrap get _wrap => _diffLayout?.wrap ?? _localWrap;
+  int _rowStart(int row) => _horizontalViewport == null ? _wrap.rowStart(row) : row;
+  int _rowHeight(int row) => _horizontalViewport == null ? _wrap.rowHeight(row) : 1;
+  void _highlightChanged() {
+    _wrapKey = null;
+    markNeedsLayout();
+  }
+
   CodeLineSelection _selection;
   TextStyle _textStyle;
   bool _hasFocus;
@@ -263,6 +274,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     if (attached) {
       _horizontalViewport?.removeListener(markNeedsLayout);
     }
+    if (value != null) _wrap.remove(this);
     _horizontalViewport = value;
     if (attached) {
       markNeedsLayout();
@@ -343,12 +355,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       return;
     }
     if (attached) {
-      _highlighter.removeListener(markNeedsLayout);
+      _highlighter.removeListener(_highlightChanged);
     }
     _highlighter = value;
     if (attached) {
       markNeedsLayout();
-      _highlighter.addListener(markNeedsLayout);
+      _highlighter.addListener(_highlightChanged);
     }
   }
 
@@ -493,7 +505,14 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
 
   set diffLayout(CodeDiffLayout? layout) {
     if (identical(layout, _diffLayout)) return;
+    final oldWrap = _wrap;
     _diffLayout = layout;
+    if (!identical(oldWrap, _wrap)) {
+      if (attached) oldWrap.removeListener(markNeedsLayout);
+      oldWrap.remove(this);
+      if (attached) _wrap.addListener(markNeedsLayout);
+    }
+    _wrapKey = null;
     _displayParagraphs.clear();
     markNeedsLayout();
   }
@@ -632,7 +651,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     final Offset? offset = calculateTextPositionViewportOffset(position);
     if (offset == null) {
       if (_diffLayout != null && position.index < _diffLayout!.lineRows.length) {
-        final target = _diffLayout!.lineRows[position.index] * _preferredLineHeight;
+        final target = _rowStart(_diffLayout!.lineRows[position.index]) * _preferredLineHeight;
         _verticalViewport.jumpTo(target.clamp(0, _verticalViewportSize ?? target));
         if(tryCount < 10) SchedulerBinding.instance.addPostFrameCallback((_) {
           if (attached) makePositionVisible(position, tryCount + 1);
@@ -687,7 +706,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     final Offset? offset = calculateTextPositionViewportOffset(position);
     if (offset == null) {
       if (_diffLayout != null && position.index < _diffLayout!.lineRows.length) {
-        final target = max(0.0, _diffLayout!.lineRows[position.index] * _preferredLineHeight - size.height / 2);
+        final target = max(0.0, _rowStart(_diffLayout!.lineRows[position.index]) * _preferredLineHeight - size.height / 2);
         scrollViewport(_verticalViewport, target.clamp(0, _verticalViewportSize ?? target));
         return;
       }
@@ -911,18 +930,21 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     super.attach(owner);
     _foregroundRender.attach(owner);
     _backgroundRender.attach(owner);
+    _wrap.addListener(markNeedsLayout);
     _verticalViewport.addListener(markNeedsLayout);
     _horizontalViewport?.addListener(markNeedsPaint);
-    _highlighter.addListener(markNeedsLayout);
+    _highlighter.addListener(_highlightChanged);
     _showCursorNotifier.addListener(_onCursorVisibleChanged);
     _floatingCursorNotifier.addListener(_onFloatingCursorChanged);
   }
 
   @override
   void detach() {
+    _wrap.removeListener(markNeedsLayout);
+    _wrap.remove(this);
     _verticalViewport.removeListener(markNeedsLayout);
     _horizontalViewport?.removeListener(markNeedsPaint);
-    _highlighter.removeListener(markNeedsLayout);
+    _highlighter.removeListener(_highlightChanged);
     _showCursorNotifier.removeListener(_onCursorVisibleChanged);
     _floatingCursorNotifier.removeListener(_onFloatingCursorChanged);
     super.detach();
@@ -1034,7 +1056,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   }
 
   void _updateDisplayRenderParagraphs() {
-    if (_diffLayout != null && _horizontalViewport != null &&
+    if (_diffLayout != null &&
         _diffLayout!.lineRows.length == _codes.length) {
       _updateDiffParagraphs();
       return;
@@ -1346,7 +1368,23 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
 
   void _updateDiffParagraphs() {
     final layout = _diffLayout!;
-    final total = paddingTop + layout.totalRows * _preferredLineHeight + paddingBottom;
+    final width = _horizontalViewport == null
+        ? max(1.0, size.width - _padding.horizontal) : double.infinity;
+    if (_horizontalViewport == null) {
+      final key = <Object?>[_codes, layout, width, _textStyle, _maxLengthSingleLineRendering];
+      if (!listEquals(_wrapKey, key)) {
+        _wrapKey = key;
+        _wrapHeights = List<int>.filled(layout.totalRows, 1);
+        for (final i in layout.visibleLines ?? Iterable<int>.generate(_codes.length)) {
+          if (layout.hiddenLines.contains(i)) continue;
+          final paragraph = _buildParagraph(i, width);
+          final row = layout.lineRows[i];
+          _wrapHeights[row] = max(_wrapHeights[row], paragraph.lineCount);
+        }
+      }
+      _wrap.update(this, _wrapHeights);
+    }
+    final total = paddingTop + (_horizontalViewport == null ? _wrap.totalRows : layout.totalRows) * _preferredLineHeight + paddingBottom;
     _verticalViewportSize = max(0, total - size.height);
     if (_verticalViewport.pixels > _verticalViewportSize!) {
       _verticalViewport.correctBy(_verticalViewportSize! - _verticalViewport.pixels);
@@ -1361,15 +1399,15 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     final targetRow = max(0, ((top - paddingTop) / _preferredLineHeight).floor());
     while (low < high) {
       final middle = (low + high) ~/ 2;
-      if (layout.lineRows[realLine(middle)] < targetRow) { low = middle + 1; } else { high = middle; }
+      if (_rowStart(layout.lineRows[realLine(middle)]) < targetRow) { low = middle + 1; } else { high = middle; }
     }
     _displayParagraphs.clear();
     for (var position = max(0, low - 1); position < count; position++) {
       final i = realLine(position);
       if (visible == null && layout.hiddenLines.contains(i)) continue;
-      final y = paddingTop + layout.lineRows[i] * _preferredLineHeight;
+      final y = paddingTop + _rowStart(layout.lineRows[i]) * _preferredLineHeight;
       if (y > bottom + _preferredLineHeight && _displayParagraphs.isNotEmpty) break;
-      final paragraph = _buildParagraph(i, double.infinity);
+      final paragraph = _buildParagraph(i, width);
       _displayParagraphs.add(CodeLineRenderParagraph(index: i, paragraph: paragraph,
         offset: Offset(paddingLeft, y), chunkParent: false, chunkLongText: paragraph.trucated));
     }
@@ -1388,13 +1426,22 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     if (layout == null) return;
     canvas.save();
     canvas.clipRect(origin & size);
-    final first = max(0, ((_verticalViewport.pixels - paddingTop) / _preferredLineHeight).floor());
-    final last = min(layout.totalRows, first + (size.height / _preferredLineHeight).ceil() + 2);
+    int logicalRow(double pixels) {
+      final physical = max(0, ((pixels - paddingTop) / _preferredLineHeight).floor());
+      var low = 0, high = layout.totalRows;
+      while (low < high) {
+        final middle = (low + high) ~/ 2;
+        if (_rowStart(middle + 1) <= physical) { low = middle + 1; } else { high = middle; }
+      }
+      return low;
+    }
+    final first = logicalRow(_verticalViewport.pixels);
+    final last = min(layout.totalRows, logicalRow(_verticalViewport.pixels + size.height) + 1);
     for (var row = first; row < last; row++) {
       final color = layout.rowColors[row];
       if (color != null) canvas.drawRect(Rect.fromLTWH(origin.dx,
-        origin.dy + paddingTop + row * _preferredLineHeight - _verticalViewport.pixels,
-        size.width, _preferredLineHeight), Paint()..color = color);
+        origin.dy + paddingTop + _rowStart(row) * _preferredLineHeight - _verticalViewport.pixels,
+        size.width, _rowHeight(row) * _preferredLineHeight), Paint()..color = color);
     }
     for (final entry in layout.rowLabels.entries) {
       if (entry.key < first || entry.key >= last) continue;
@@ -1402,7 +1449,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         style: _textStyle.copyWith(color: const Color(0xff758196))),
         textDirection: TextDirection.ltr)..layout();
       painter.paint(canvas, Offset(origin.dx + paddingLeft,
-        origin.dy + paddingTop + entry.key * _preferredLineHeight - _verticalViewport.pixels));
+        origin.dy + paddingTop + _rowStart(entry.key) * _preferredLineHeight - _verticalViewport.pixels));
       painter.dispose();
     }
     for (final paragraph in _displayParagraphs) {

@@ -12,6 +12,7 @@ import '../core/access.dart';
 import '../core/git.dart';
 import '../core/files.dart';
 import '../core/diff_navigation.dart';
+import '../core/diff.dart' show InlineDiffMode;
 import '../core/launch.dart';
 import '../core/merge.dart';
 import '../core/merge_labels.dart';
@@ -1049,6 +1050,22 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       case AppCommand.toggleLineDetails:
         setState(() => settings.showLineDetails = !settings.showLineDetails);
         _saveSettings();
+      case AppCommand.toggleWordWrap:
+        setState(() => settings.wordWrap = !settings.wordWrap);
+        _saveSettings();
+      case AppCommand.toggleWordDiff:
+        setState(
+          () =>
+              settings.inlineMode = settings.inlineMode == InlineDiffMode.words
+              ? InlineDiffMode.characters
+              : InlineDiffMode.words,
+        );
+        session?.refresh(settings.comparison);
+        _saveSettings();
+      case AppCommand.toggleMovedBlocks:
+        setState(() => settings.detectMoves = !settings.detectMoves);
+        session?.refresh(settings.comparison);
+        _saveSettings();
       case AppCommand.swapSides:
         _swapSides();
       case AppCommand.takeLeft:
@@ -1485,6 +1502,9 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             (AppCommand.nextInlineDiff, Icons.last_page, '下一行内差异'),
             (AppCommand.toggleOverview, Icons.view_week_outlined, '概览条'),
             (AppCommand.toggleLineDetails, Icons.view_stream_outlined, '行详情'),
+            (AppCommand.toggleWordWrap, Icons.wrap_text, '自动换行'),
+            (AppCommand.toggleWordDiff, Icons.text_fields, '单词差异'),
+            (AppCommand.toggleMovedBlocks, Icons.move_down, '移动代码'),
           ])
             ListenableBuilder(
               listenable: Listenable.merge([
@@ -1508,7 +1528,13 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                         item.$1 == AppCommand.toggleOverview &&
                                 settings.showOverview ||
                             item.$1 == AppCommand.toggleLineDetails &&
-                                settings.showLineDetails
+                                settings.showLineDetails ||
+                            item.$1 == AppCommand.toggleWordWrap &&
+                                settings.wordWrap ||
+                            item.$1 == AppCommand.toggleWordDiff &&
+                                settings.inlineMode == InlineDiffMode.words ||
+                            item.$1 == AppCommand.toggleMovedBlocks &&
+                                settings.detectMoves
                         ? accent
                         : muted,
                   ),
@@ -1532,7 +1558,24 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         final side = _active == 0 ? 0 : 1;
         final line =
             (side == 0 ? s.leftEditor : s.rightEditor).selection.extentIndex;
+        final counterpart = s.movedCounterpart(side, line);
         return LineDetails(
+          movementLabel: counterpart == null
+              ? null
+              : '移动代码 · ${side == 0 ? "右" : "左"} L${counterpart + 1}',
+          onFollowMove: counterpart == null
+              ? null
+              : () {
+                  final target = side == 0 ? s.rightEditor : s.leftEditor;
+                  target.selection = CodeLineSelection.collapsed(
+                    index: counterpart,
+                    offset: 0,
+                  );
+                  (side == 0 ? _rightScroll : _leftScroll).makeVisible(
+                    CodeLinePosition(index: counterpart, offset: 0),
+                  );
+                  (side == 0 ? _rightFocus : _leftFocus).requestFocus();
+                },
           row: _active == 2
               ? s.conflictDetails(s.resultEditor!.selection.extentIndex)
               : s.lineDetails(side, line),
@@ -1714,6 +1757,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       return CodeDiffLayout(
         lineRows: layout.lineRows,
         totalRows: layout.totalRows,
+        wrap: layout.wrap,
         rowColors: {
           ...layout.rowColors,
           for (final (_, row) in s.branchDiffs![side].changedRows)
@@ -1737,6 +1781,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                 bottom: 32,
               ),
               child: DiffOverview(
+                wordWrap: settings.wordWrap,
                 left: overviewLayout(0),
                 right: overviewLayout(1),
                 scroll: _leftScroll.verticalScroller,

@@ -35,6 +35,9 @@ enum AppCommand {
   gitSettings,
   toggleOverview,
   toggleLineDetails,
+  toggleWordWrap,
+  toggleWordDiff,
+  toggleMovedBlocks,
 }
 
 extension AppCommandInfo on AppCommand {
@@ -71,6 +74,9 @@ extension AppCommandInfo on AppCommand {
     AppCommand.gitSettings: 'Git 集成',
     AppCommand.toggleOverview: '显示差异概览',
     AppCommand.toggleLineDetails: '显示行详情',
+    AppCommand.toggleWordWrap: '长行自动换行',
+    AppCommand.toggleWordDiff: '按单词显示行内差异',
+    AppCommand.toggleMovedBlocks: '识别移动代码块',
   }[this]!;
   String get group => index <= AppCommand.close.index
       ? '文件'
@@ -190,6 +196,21 @@ class KeyBinding {
 }
 
 final defaultBindings = <AppCommand, KeyBinding>{
+  AppCommand.toggleWordWrap: const KeyBinding(
+    LogicalKeyboardKey.keyZ,
+    primary: true,
+    alt: true,
+  ),
+  AppCommand.toggleWordDiff: const KeyBinding(
+    LogicalKeyboardKey.keyI,
+    primary: true,
+    alt: true,
+  ),
+  AppCommand.toggleMovedBlocks: const KeyBinding(
+    LogicalKeyboardKey.keyM,
+    primary: true,
+    alt: true,
+  ),
   AppCommand.toggleOverview: const KeyBinding(
     LogicalKeyboardKey.keyO,
     primary: true,

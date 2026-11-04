@@ -214,7 +214,7 @@ class _CodePaneState extends State<CodePane> {
       findController: find,
       onChanged: onChanged,
       readOnly: readOnly,
-      wordWrap: false,
+      wordWrap: settings.wordWrap,
       autofocus: false,
       shortcutsActivatorsBuilder: _AppEditorShortcuts(settings.shortcuts),
       maxLengthSingleLineRendering: 32000,

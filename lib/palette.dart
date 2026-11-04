@@ -14,6 +14,8 @@ const addedBg = Color(0xff19332c);
 const removedBg = Color(0xff352429);
 const addedInline = Color(0xff28583f);
 const removedInline = Color(0xff67343e);
+const movedBg = Color(0xff203547);
+const movedInk = Color(0xff85cce8);
 Color tokenColor(String scope) {
   final key = scope.split('.').first;
   return switch (key) {
