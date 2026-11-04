@@ -7,6 +7,15 @@ import sys
 root = Path(__file__).resolve().parents[1]
 env = os.environ.copy()
 env['XCODE_XCCONFIG_FILE'] = str(root / 'tool/integration.xcconfig')
-raise SystemExit(subprocess.call(['flutter', '--no-version-check', 'test',
-    'integration_test/desktop_test.dart', '-d', 'macos', '--no-pub',
-    '--reporter', 'expanded', *sys.argv[1:]], cwd=root, env=env))
+arguments = sys.argv[1:]
+performance = '--performance' in arguments
+if performance:
+    arguments.remove('--performance')
+if performance:
+    subprocess.run(['flutter', '--no-version-check', 'build', 'macos', '--release',
+        '--target', 'tool/performance_app.dart', '--no-pub', *arguments], cwd=root, env=env, check=True)
+    command = [str(root / 'build/macos/Build/Products/Release/fmerge.app/Contents/MacOS/fmerge')]
+else:
+    command = ['flutter', '--no-version-check', 'test', 'integration_test/desktop_test.dart',
+        '-d', 'macos', '--no-pub', '--reporter', 'expanded', *arguments]
+raise SystemExit(subprocess.call(command, cwd=root, env=env))

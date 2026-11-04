@@ -1,8 +1,11 @@
 import 'dart:math' as math;
+import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:characters/characters.dart';
 
 import 'myers.dart';
+import 'line_diff.dart';
 
 class TextRangeMark {
   const TextRangeMark(this.start, this.end);
@@ -44,6 +47,36 @@ class DiffDocument {
   final bool timedOut;
   int get added => changes.fold(0, (n, c) => n + c.bEnd - c.bStart);
   int get removed => changes.fold(0, (n, c) => n + c.aEnd - c.aStart);
+
+  Iterable<(int, DiffRow)> get changedRows sync* {
+    final source = rows;
+    if (source is _CompactDiffRows) {
+      for (final entry in source._changed.entries) {
+        yield (entry.key, entry.value);
+      }
+    } else {
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].changed) yield (i, rows[i]);
+      }
+    }
+  }
+
+  List<int> lineRows(bool leftSide) {
+    final result = Int32List(leftSide ? left.length : right.length);
+    final source = rows;
+    if (source is _CompactDiffRows) {
+      final indices = leftSide ? source._left : source._right;
+      for (var i = 0; i < source.length; i++) {
+        if (indices[i] >= 0) result[indices[i]] = i;
+      }
+    } else {
+      for (var i = 0; i < rows.length; i++) {
+        final line = leftSide ? rows[i].leftLine : rows[i].rightLine;
+        if (line != null) result[line] = i;
+      }
+    }
+    return result;
+  }
 }
 
 // 保留尾部空行，从而让“缺少末尾换行”成为可见差异。输入不做换行归一化。
@@ -118,17 +151,37 @@ DiffDocument compare(DiffInput input) {
     ];
   }
 
-  final result = myers(keys(a, input.left), keys(b, input.right));
+  final result = lineDiff(keys(a, input.left), keys(b, input.right));
   var degraded = result.timedOut;
-  final rows = <DiffRow>[];
-  final starts = <int>[];
+  final changedRows = result.changes.fold<int>(
+    0,
+    (n, c) => n + math.max(c.aEnd - c.aStart, c.bEnd - c.bStart),
+  );
+  final totalRows =
+      a.length +
+      result.changes.fold<int>(
+        0,
+        (n, c) => n + math.max(0, (c.bEnd - c.bStart) - (c.aEnd - c.aStart)),
+      );
   var ai = 0, bi = 0;
-  for (var h = 0; h < result.changes.length; h++) {
-    final c = result.changes[h];
-    while (ai < c.aStart) {
+  final List<DiffRow> rows = totalRows > 4096 && changedRows * 4 < totalRows
+      ? _CompactDiffRows(a, b, totalRows)
+      : <DiffRow>[];
+  void unchanged() {
+    if (rows is _CompactDiffRows) {
+      rows.addUnchanged(ai++, bi++);
+    } else {
       rows.add(
         DiffRow(left: a[ai], right: b[bi], leftLine: ai++, rightLine: bi++),
       );
+    }
+  }
+
+  final starts = <int>[];
+  for (var h = 0; h < result.changes.length; h++) {
+    final c = result.changes[h];
+    while (ai < c.aStart) {
+      unchanged();
     }
     starts.add(rows.length);
     final length = math.max(c.aEnd - c.aStart, c.bEnd - c.bStart);
@@ -138,6 +191,7 @@ DiffDocument compare(DiffInput input) {
       final refine =
           l != null &&
           r != null &&
+          length <= 2048 &&
           watch.elapsedMilliseconds < 400 &&
           a[l].length + b[r].length <= 24000;
       if (l != null && r != null && !refine) degraded = true;
@@ -163,9 +217,7 @@ DiffDocument compare(DiffInput input) {
     bi = c.bEnd;
   }
   while (ai < a.length) {
-    rows.add(
-      DiffRow(left: a[ai], right: b[bi], leftLine: ai++, rightLine: bi++),
-    );
+    unchanged();
   }
   return DiffDocument(
     a,
@@ -179,6 +231,7 @@ DiffDocument compare(DiffInput input) {
 }
 
 (List<TextRangeMark>, List<TextRangeMark>) _inline(String a, String b) {
+  if (a == b) return (const [], const []);
   // 使用字素簇避免高亮切开 Emoji、代理对或组合字符。
   final ac = a.characters.toList(), bc = b.characters.toList();
   final result = myers(ac, bc, budget: const Duration(milliseconds: 4));
@@ -222,4 +275,42 @@ String selectedText(
     ...lines.sublist(startLine + 1, endLine),
     lines[endLine].substring(0, endOffset),
   ].join('\n');
+}
+
+/// 大量未修改行只保留紧凑索引，按读取创建行视图；变化行保留完整高亮。
+class _CompactDiffRows extends ListBase<DiffRow> {
+  _CompactDiffRows(this.left, this.right, int capacity)
+    : _left = Int32List(capacity),
+      _right = Int32List(capacity);
+  final List<String> left, right;
+  final Int32List _left, _right;
+  final _changed = <int, DiffRow>{};
+  int _length = 0;
+  @override
+  int get length => _length;
+  @override
+  set length(int value) => throw UnsupportedError('只读差异行');
+  @override
+  DiffRow operator [](int index) {
+    RangeError.checkValidIndex(index, this);
+    final changed = _changed[index];
+    if (changed != null) return changed;
+    final l = _left[index], r = _right[index];
+    return DiffRow(left: left[l], right: right[r], leftLine: l, rightLine: r);
+  }
+
+  @override
+  void operator []=(int index, DiffRow value) =>
+      throw UnsupportedError('只读差异行');
+  void addUnchanged(int left, int right) {
+    _left[_length] = left;
+    _right[_length++] = right;
+  }
+
+  @override
+  void add(DiffRow row) {
+    _changed[_length] = row;
+    _left[_length] = row.leftLine ?? -1;
+    _right[_length++] = row.rightLine ?? -1;
+  }
 }

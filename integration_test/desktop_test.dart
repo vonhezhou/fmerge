@@ -129,10 +129,14 @@ void main() {
     debugPrint('STEP: goto shortcut');
     // 原生菜单必须编辑当前对话框字段，不能误改背后的文件。
     final savedText = s.rightEditor.text;
+    tester.widgetList<CodePane>(panes).last.focus.requestFocus();
+    await tester.pump();
+    expect(tester.widgetList<CodePane>(panes).last.focus.hasFocus, true);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyG);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
     final pathField = find.byType(TextField).first;
     await tester.tap(pathField);
     await tester.pumpAndSettle();

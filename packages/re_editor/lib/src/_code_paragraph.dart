@@ -196,6 +196,7 @@ class _ParagraphImpl extends IParagraph {
 class _CodeParagraphProvider {
 
   final Map<TextSpan, _ParagraphImpl> _cachedParagraphs;
+  int _cachedCharacters = 0;
 
   ui.TextStyle? _style;
   ui.ParagraphConstraints? _constraints;
@@ -229,6 +230,7 @@ class _CodeParagraphProvider {
       style: style
     );
     _preferredLineHeight = painter.preferredLineHeight;
+    painter.dispose();
     clearCache();
   }
 
@@ -247,8 +249,9 @@ class _CodeParagraphProvider {
       );
       clearCache();
     }
-    final _ParagraphImpl? cache = _cachedParagraphs[span];
+    final _ParagraphImpl? cache = _cachedParagraphs.remove(span);
     if (cache != null) {
+      _cachedParagraphs[span] = cache;
       return cache;
     }
     final _ParagraphImpl impl;
@@ -260,7 +263,16 @@ class _CodeParagraphProvider {
     } else {
       impl = _build(span, plainText, false);
     }
-    _cachedParagraphs[span] = impl;
+    // 仅缓存最近可见区域；移除引用后交由 GC，仍在绘制的段落不可提前 dispose。
+    if (plainText.length <= 1024 * 1024) {
+      _cachedParagraphs[span] = impl;
+      _cachedCharacters += plainText.length;
+      while (_cachedParagraphs.length > 512 || _cachedCharacters > 1024 * 1024) {
+        final oldest = _cachedParagraphs.keys.first;
+        _cachedCharacters -= oldest.toPlainText().length;
+        _cachedParagraphs.remove(oldest);
+      }
+    }
     return impl;
   }
 
@@ -303,6 +315,7 @@ class _CodeParagraphProvider {
 
   void clearCache() {
     _cachedParagraphs.clear();
+    _cachedCharacters = 0;
   }
 
   _ParagraphImpl _build(TextSpan span, String plainText, bool trucated) {

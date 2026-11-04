@@ -7,6 +7,7 @@ import 'package:re_editor/re_editor.dart';
 
 import 'core/diff.dart';
 import 'core/compare_task.dart';
+import 'core/compare_worker.dart';
 import 'core/context_rows.dart';
 import 'core/alignment.dart';
 import 'core/files.dart';
@@ -25,8 +26,8 @@ class CompareSession extends ChangeNotifier {
     this.output,
     this.readOnly = false,
     this.mergeLabels = const MergeLabels(),
-    CompareRunner? compareRunner,
-  }) : _compareRunner = compareRunner ?? _runComparison {
+    this.compareRunner,
+  }) {
     leftEditor = CodeLineEditingController.fromText(left.text);
     rightEditor = CodeLineEditingController.fromText(right.text);
     if (base != null) {
@@ -71,7 +72,7 @@ class CompareSession extends ChangeNotifier {
   late String _lastLeft, _lastRight, _lastResult, _savedResult;
   late CodeLineSelection _lastLeftSelection, _lastRightSelection;
   Timer? _timer;
-  final CompareRunner _compareRunner;
+  final CompareRunner? compareRunner;
   Future<void>? _refreshTask;
   bool _refreshPending = false;
   var _generation = 0;
@@ -123,8 +124,7 @@ class CompareSession extends ChangeNotifier {
     _programmatic = true;
     _context = contextOnly && !isMerge && diff != null
         ? ContextRows(diff!.rows.length, {
-            for (var i = 0; i < diff!.rows.length; i++)
-              if (diff!.rows[i].changed) i,
+            for (final entry in diff!.changedRows) entry.$1,
           }, context: contextLines)
         : null;
     CodeDiffLayout project(CodeDiffLayout layout) {
@@ -393,18 +393,27 @@ class CompareSession extends ChangeNotifier {
       while (_refreshPending && !_disposed) {
         _refreshPending = false;
         _timer?.cancel();
-        final generation = _generation;
+        var generation = _generation;
         try {
-          final result = await _compareRunner(
-            CompareTask(
+          CompareTask snapshot() {
+            // 等待全局计算槽期间的新请求一起合并，代次与真正读取的正文一致。
+            generation = _generation;
+            _refreshPending = false;
+            _timer?.cancel();
+            return CompareTask(
               left: leftEditor.text,
               right: rightEditor.text,
               options: options,
               leftOriginal: options.ignoreEol ? null : left.original,
               rightOriginal: options.ignoreEol ? null : right.original,
               base: base?.original,
-            ),
-          );
+            );
+          }
+
+          final runner = compareRunner;
+          final result = await (runner == null
+              ? compareWorker.run(this, snapshot)
+              : runner(snapshot()));
           if (_disposed || generation != _generation) continue;
           diff = result.diff;
           _programmatic = true;
@@ -445,16 +454,12 @@ class CompareSession extends ChangeNotifier {
   }
 
   CodeDiffLayout _layout(DiffDocument diff, bool left) {
-    final rows = <int>[],
+    final rows = diff.lineRows(left),
         colors = <int, Color>{},
         ranges = <int, List<CodeDiffRange>>{};
-    for (var i = 0; i < diff.rows.length; i++) {
-      final row = diff.rows[i],
-          line = left ? diff.rows[i].leftLine : diff.rows[i].rightLine;
-      if (line != null) rows.add(i);
-      if (row.changed) {
-        colors[i] = line == null ? bg : (left ? removedBg : addedBg);
-      }
+    for (final (i, row) in diff.changedRows) {
+      final line = left ? row.leftLine : row.rightLine;
+      colors[i] = line == null ? bg : (left ? removedBg : addedBg);
       final marks = left ? row.leftMarks : row.rightMarks;
       if (line != null && marks.isNotEmpty) {
         ranges[line] = [
@@ -643,6 +648,7 @@ class CompareSession extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    compareWorker.cancel(this);
     _timer?.cancel();
     leftEditor.dispose();
     rightEditor.dispose();
@@ -650,9 +656,6 @@ class CompareSession extends ChangeNotifier {
     super.dispose();
   }
 }
-
-Future<CompareResult> _runComparison(CompareTask task) =>
-    compute(runCompareTask, task, debugLabel: 'fmerge.compare');
 
 /// 光标移动时复用判断；只有正文或保存基线变化才重新规范化、比较全文。
 class _InputChange {

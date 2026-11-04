@@ -1,0 +1,138 @@
+{
+  "baseline": "69c488e",
+  "method": "macOS arm64 native Release; one independent process per version, 3 reload cycles each; programmatic edits and long-distance scroll; wall time and engine FrameTiming; RSS without forced GC; not cold launch or real IME latency",
+  "before": {
+    "mode": "release",
+    "lines": 100000,
+    "platform": "macos",
+    "scope": "one process; 3 document reload cycles; generated fixtures; programmatic edits and scroll; no IME or OS input latency; memory not forced-GC steady state",
+    "cycles": [
+      {
+        "cycle": 0,
+        "openAndFirstCompareMs": 398.696,
+        "rssAfterOpenMiB": 285.71875,
+        "editSyncMs": [
+          16.944,
+          17.196,
+          28.406,
+          35.548,
+          51.917
+        ],
+        "editP50Ms": 28.406,
+        "editP95Ms": 51.917,
+        "explicitCompareAfterEditsMs": 91.308,
+        "rssAfterScrollMiB": 509.03125,
+        "frameCount": 107,
+        "buildP95Ms": 25.151,
+        "rasterP95Ms": 0.72
+      },
+      {
+        "cycle": 1,
+        "openAndFirstCompareMs": 466.815,
+        "rssAfterOpenMiB": 445.953125,
+        "editSyncMs": [
+          17.42,
+          17.54,
+          21.972,
+          28.472,
+          41.076
+        ],
+        "editP50Ms": 21.972,
+        "editP95Ms": 41.076,
+        "explicitCompareAfterEditsMs": 96.346,
+        "rssAfterScrollMiB": 485.796875,
+        "frameCount": 105,
+        "buildP95Ms": 28.559,
+        "rasterP95Ms": 0.586
+      },
+      {
+        "cycle": 2,
+        "openAndFirstCompareMs": 565.575,
+        "rssAfterOpenMiB": 458.375,
+        "editSyncMs": [
+          15.818,
+          17.901,
+          18.631,
+          26.103,
+          27.998
+        ],
+        "editP50Ms": 18.631,
+        "editP95Ms": 27.998,
+        "explicitCompareAfterEditsMs": 95.369,
+        "rssAfterScrollMiB": 533.546875,
+        "frameCount": 100,
+        "buildP95Ms": 4.784,
+        "rasterP95Ms": 0.592
+      }
+    ],
+    "peakRssMiB": 642.484375,
+    "rssAfterCloseMiB": 495.71875
+  },
+  "after": {
+    "mode": "release",
+    "lines": 100000,
+    "platform": "macos",
+    "scope": "one process; 3 document reload cycles; generated fixtures; programmatic edits and scroll; no IME or OS input latency; memory not forced-GC steady state",
+    "cycles": [
+      {
+        "cycle": 0,
+        "openAndFirstCompareMs": 367.932,
+        "rssAfterOpenMiB": 276.171875,
+        "editSyncMs": [
+          15.307,
+          15.388,
+          16.031,
+          18.383,
+          36.752
+        ],
+        "editP50Ms": 16.031,
+        "editP95Ms": 36.752,
+        "explicitCompareAfterEditsMs": 90.289,
+        "rssAfterScrollMiB": 412.90625,
+        "frameCount": 114,
+        "buildP95Ms": 24.598,
+        "rasterP95Ms": 0.699
+      },
+      {
+        "cycle": 1,
+        "openAndFirstCompareMs": 462.1,
+        "rssAfterOpenMiB": 333.703125,
+        "editSyncMs": [
+          15.721,
+          17.341,
+          20.735,
+          30.319,
+          32.84
+        ],
+        "editP50Ms": 20.735,
+        "editP95Ms": 32.84,
+        "explicitCompareAfterEditsMs": 86.262,
+        "rssAfterScrollMiB": 356.953125,
+        "frameCount": 112,
+        "buildP95Ms": 25.683,
+        "rasterP95Ms": 0.563
+      },
+      {
+        "cycle": 2,
+        "openAndFirstCompareMs": 447.076,
+        "rssAfterOpenMiB": 367.890625,
+        "editSyncMs": [
+          15.958,
+          20.226,
+          31.604,
+          32.474,
+          38.391
+        ],
+        "editP50Ms": 31.604,
+        "editP95Ms": 38.391,
+        "explicitCompareAfterEditsMs": 89.724,
+        "rssAfterScrollMiB": 373.6875,
+        "frameCount": 107,
+        "buildP95Ms": 32.418,
+        "rasterP95Ms": 0.591
+      }
+    ],
+    "peakRssMiB": 526.078125,
+    "rssAfterCloseMiB": 366.640625
+  }
+}

@@ -1,10 +1,14 @@
+import 'dart:collection';
+import 'dart:typed_data';
+
 /// 将未改动区压缩成提示行；真实文档行号、文本和选择保持不变。
 class ContextRows {
-  ContextRows(int total, Set<int> changed, {int context = 3}) {
+  ContextRows(int total, Set<int> changed, {int context = 3})
+    : rows = Int32List(total) {
     if (changed.length == total &&
         changed.every((row) => row >= 0 && row < total)) {
       for (var row = 0; row < total; row++) {
-        rows.add(row);
+        rows[row] = row;
       }
       totalRows = total;
       return;
@@ -17,17 +21,16 @@ class ContextRows {
       if (end <= cursor) return;
       final start = cursor;
       while (cursor < end) {
-        hidden.add(cursor++);
-        rows.add(display);
+        rows[cursor++] = display;
       }
+      (hidden as _HiddenRanges).append(start, end);
       labels[display++] = '⋯ 已隐藏 ${end - start} 行未改动内容 ⋯';
     }
 
     void visibleRange(int start, int end) {
       hiddenRange(start);
       while (cursor < end) {
-        rows.add(display++);
-        cursor++;
+        rows[cursor++] = display++;
       }
     }
 
@@ -47,8 +50,56 @@ class ContextRows {
     hiddenRange(total);
     totalRows = display;
   }
-  final rows = <int>[];
-  final hidden = <int>{};
+  final List<int> rows;
+  final Set<int> hidden = _HiddenRanges();
   final labels = <int, String>{};
   late final int totalRows;
+}
+
+/// 隐藏行连续成段，按区间保存，避免为几十万行逐个创建哈希表条目。
+class _HiddenRanges extends SetBase<int> {
+  final _ranges = <(int, int)>[];
+  int _length = 0;
+  void append(int start, int end) {
+    _ranges.add((start, end));
+    _length += end - start;
+  }
+
+  @override
+  bool contains(Object? value) {
+    if (value is! int) return false;
+    var low = 0, high = _ranges.length;
+    while (low < high) {
+      final middle = (low + high) ~/ 2, range = _ranges[middle];
+      if (value < range.$1) {
+        high = middle;
+      } else if (value >= range.$2) {
+        low = middle + 1;
+      } else {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  int? lookup(Object? value) => contains(value) ? value as int : null;
+  @override
+  Iterator<int> get iterator => _values().iterator;
+  Iterable<int> _values() sync* {
+    for (final range in _ranges) {
+      for (var i = range.$1; i < range.$2; i++) {
+        yield i;
+      }
+    }
+  }
+
+  @override
+  int get length => _length;
+  @override
+  bool add(int value) => throw UnsupportedError('只读隐藏区间');
+  @override
+  bool remove(Object? value) => throw UnsupportedError('只读隐藏区间');
+  @override
+  Set<int> toSet() => {...this};
 }

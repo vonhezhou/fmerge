@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
@@ -44,7 +45,10 @@ class TextFile {
           };
   }
 
-  static Future<TextFile> read(String path, {TextEncoding? encoding}) async {
+  static Future<TextFile> read(String path, {TextEncoding? encoding}) =>
+      Isolate.run(() => _read(path, encoding));
+
+  static Future<TextFile> _read(String path, TextEncoding? encoding) async {
     final file = File(path);
     if (await file.length() > 32 * 1024 * 1024) {
       throw const FormatException('文本文件超过 32 MiB，暂不支持打开');
@@ -226,6 +230,36 @@ class TextFile {
     String? forcedEol,
     TextEncoding? asEncoding,
   }) async {
+    // 后台副本持有调用时的保存基线；仅成功后更新主线程模型。
+    final snapshot = TextFile._(path, original, encoding, digest)
+      .._resolvedPath = _resolvedPath
+      .._utf16Bom = _utf16Bom;
+    final task = (
+      snapshot,
+      edited,
+      destination,
+      backup,
+      overwriteExternal,
+      forcedEol,
+      asEncoding,
+    );
+    final saved = await Isolate.run(() => _saveFile(task));
+    path = saved.path;
+    original = saved.original;
+    encoding = saved.encoding;
+    digest = saved.digest;
+    _resolvedPath = saved._resolvedPath;
+    _utf16Bom = saved._utf16Bom;
+  }
+
+  Future<void> _save(
+    String edited, {
+    String? destination,
+    bool backup = true,
+    bool overwriteExternal = false,
+    String? forcedEol,
+    TextEncoding? asEncoding,
+  }) async {
     final requestedPath = destination ?? path;
     if (requestedPath == null) throw StateError('请先选择保存位置');
     var target = File(requestedPath);
@@ -309,3 +343,17 @@ class TextFile {
 
 String normalize(String raw) =>
     raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
+Future<TextFile> _saveFile(
+  (TextFile, String, String?, bool, bool, String?, TextEncoding?) task,
+) async {
+  await task.$1._save(
+    task.$2,
+    destination: task.$3,
+    backup: task.$4,
+    overwriteExternal: task.$5,
+    forcedEol: task.$6,
+    asEncoding: task.$7,
+  );
+  return task.$1;
+}

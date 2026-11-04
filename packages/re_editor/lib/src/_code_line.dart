@@ -1989,7 +1989,7 @@ class _CodeLineEditingCache {
 
   _CodeLineEditingCache(this.controller) {
     controller.addListener(_onValueChanged);
-    _node = _CodeLineEditingCacheNode(controller.value);
+    _node = _CodeLineEditingCacheNode(controller.value, controller.text.length);
     _markNewRecord = false;
   }
 
@@ -2012,7 +2012,7 @@ class _CodeLineEditingCache {
   }
 
   void clear() {
-    _node = _CodeLineEditingCacheNode(controller.value);
+    _node = _CodeLineEditingCacheNode(controller.value, controller.text.length);
     _markNewRecord = false;
   }
 
@@ -2042,16 +2042,35 @@ class _CodeLineEditingCache {
       return;
     }
     _node.value = controller.value;
+    _node.characters = controller.text.length;
+    _trimHistory();
   }
 
   void _appendNewNode() {
-    final _CodeLineEditingCacheNode newNode = _CodeLineEditingCacheNode(controller.value);
+    final _CodeLineEditingCacheNode newNode = _CodeLineEditingCacheNode(controller.value, controller.text.length);
     if (_node.next != null) {
       _node.next!.pre = null;
     }
     _node.next = newNode;
     newNode.pre = _node;
     _node = newNode;
+    _trimHistory();
+  }
+
+  void _trimHistory() {
+    var node = _node, count = 1, characters = _node.characters;
+    while (node.pre != null) {
+      final previous = node.pre!;
+      if (count >= max(2, controller.options.historyLimit) ||
+          (count >= 2 && characters + previous.characters > controller.options.historyCharacterLimit)) {
+        previous.next = null;
+        node.pre = null;
+        break;
+      }
+      characters += previous.characters;
+      count++;
+      node = previous;
+    }
   }
 
 }
@@ -2062,7 +2081,9 @@ class _CodeLineEditingCacheNode {
   _CodeLineEditingCacheNode? next;
   CodeLineEditingValue value;
 
-  _CodeLineEditingCacheNode(this.value);
+  int characters;
+
+  _CodeLineEditingCacheNode(this.value, this.characters);
 
   bool get isRoot => pre == null;
 

@@ -1003,7 +1003,9 @@ class CodeLineOptions {
 
   const CodeLineOptions({
     this.lineBreak = TextLineBreak.lf,
-    this.indentSize = _defaultIndentSize
+    this.indentSize = _defaultIndentSize,
+    this.historyLimit = 200,
+    this.historyCharacterLimit = 32 * 1024 * 1024,
   });
 
   /// Line break symbols, like LF, CRLF.
@@ -1014,18 +1016,25 @@ class CodeLineOptions {
   /// Indent length, default value is 2.
   final int indentSize;
 
+  /// 撤销状态上限与保守字符预算；至少保留当前状态及一次撤销。
+  final int historyLimit, historyCharacterLimit;
+
   CodeLineOptions copyWith({
     TextLineBreak? lineBreak,
     int? indentSize,
+    int? historyLimit,
+    int? historyCharacterLimit,
   }) {
     return CodeLineOptions(
       lineBreak: lineBreak ?? this.lineBreak,
       indentSize: indentSize ?? this.indentSize,
+      historyLimit: historyLimit ?? this.historyLimit,
+      historyCharacterLimit: historyCharacterLimit ?? this.historyCharacterLimit,
     );
   }
 
   @override
-  int get hashCode => Object.hash(lineBreak, indentSize);
+  int get hashCode => Object.hash(lineBreak, indentSize, historyLimit, historyCharacterLimit);
 
   @override
   bool operator ==(Object other) {
@@ -1034,7 +1043,9 @@ class CodeLineOptions {
     }
     return other is CodeLineOptions
         && other.lineBreak == lineBreak
-        && other.indentSize == indentSize;
+        && other.indentSize == indentSize
+        && other.historyLimit == historyLimit
+        && other.historyCharacterLimit == historyCharacterLimit;
   }
 
   String get indent => ' ' * indentSize;
