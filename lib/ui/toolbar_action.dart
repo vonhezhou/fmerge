@@ -21,7 +21,7 @@ class ToolbarAction extends StatelessWidget {
   Widget build(BuildContext context) => Tooltip(
     message: tooltip,
     child: SizedBox(
-      width: showLabel ? 50 : 34,
+      width: showLabel ? (label.length > 4 ? 60 : 50) : 34,
       height: showLabel ? 58 : 34,
       child: TextButton(
         onPressed: onPressed,

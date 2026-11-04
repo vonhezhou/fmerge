@@ -121,12 +121,14 @@ class LanguageMenu extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 95),
-              child: Text(
-                value == null ? '自动 · $label' : label,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: muted),
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 95),
+                child: Text(
+                  value == null ? '自动 · $label' : label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: muted),
+                ),
               ),
             ),
             const Icon(Icons.arrow_drop_down, size: 16, color: muted),

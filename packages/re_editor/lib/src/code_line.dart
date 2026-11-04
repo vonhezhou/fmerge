@@ -110,6 +110,10 @@ abstract class CodeLineEditingController extends ValueNotifier<CodeLineEditingVa
   /// Get the code line options.
   CodeLineOptions get options;
 
+  /// Tab 的显示列数；不改写原文，也不影响输入时的缩进规则。
+  int get displayTabSize;
+  set displayTabSize(int value);
+
   /// The current codes the user is editing.
   CodeLines get codeLines;
 

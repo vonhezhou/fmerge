@@ -21,6 +21,8 @@ enum AppCommand {
   previousDiff,
   nextConflict,
   previousConflict,
+  nextInlineDiff,
+  previousInlineDiff,
   swapSides,
   takeLeft,
   takeRight,
@@ -31,6 +33,8 @@ enum AppCommand {
   stage,
   settings,
   gitSettings,
+  toggleOverview,
+  toggleLineDetails,
 }
 
 extension AppCommandInfo on AppCommand {
@@ -53,6 +57,8 @@ extension AppCommandInfo on AppCommand {
     AppCommand.previousDiff: '上一处差异',
     AppCommand.nextConflict: '下一处冲突',
     AppCommand.previousConflict: '上一处冲突',
+    AppCommand.nextInlineDiff: '下一处行内差异',
+    AppCommand.previousInlineDiff: '上一处行内差异',
     AppCommand.swapSides: '交换左右文件',
     AppCommand.takeLeft: '使用左侧差异块',
     AppCommand.takeRight: '使用右侧差异块',
@@ -63,12 +69,14 @@ extension AppCommandInfo on AppCommand {
     AppCommand.stage: '暂存所选代码块',
     AppCommand.settings: '设置',
     AppCommand.gitSettings: 'Git 集成',
+    AppCommand.toggleOverview: '显示差异概览',
+    AppCommand.toggleLineDetails: '显示行详情',
   }[this]!;
   String get group => index <= AppCommand.close.index
       ? '文件'
       : index <= AppCommand.goToLine.index
       ? '编辑'
-      : index <= AppCommand.previousConflict.index
+      : index <= AppCommand.previousInlineDiff.index
       ? '导航'
       : index <= AppCommand.toggleLeftEdit.index
       ? '差异操作'
@@ -182,6 +190,22 @@ class KeyBinding {
 }
 
 final defaultBindings = <AppCommand, KeyBinding>{
+  AppCommand.toggleOverview: const KeyBinding(
+    LogicalKeyboardKey.keyO,
+    primary: true,
+    alt: true,
+  ),
+  AppCommand.toggleLineDetails: const KeyBinding(
+    LogicalKeyboardKey.keyL,
+    primary: true,
+    alt: true,
+  ),
+  AppCommand.nextInlineDiff: const KeyBinding(LogicalKeyboardKey.f7, alt: true),
+  AppCommand.previousInlineDiff: const KeyBinding(
+    LogicalKeyboardKey.f7,
+    alt: true,
+    shift: true,
+  ),
   AppCommand.open: const KeyBinding(LogicalKeyboardKey.keyO, primary: true),
   AppCommand.save: const KeyBinding(LogicalKeyboardKey.keyS, primary: true),
   AppCommand.saveAs: const KeyBinding(

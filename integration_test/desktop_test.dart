@@ -88,6 +88,16 @@ void main() {
     await ready(s);
     expect(s.leftEditor.diffLayout!.totalRows, s.rightEditor.lineCount);
     await snapshot('diff');
+    await tester.tap(find.byKey(const ValueKey('command-nextInlineDiff')));
+    await tester.pumpAndSettle();
+    expect(s.rightEditor.selection.isCollapsed, false);
+    await tester.tap(find.byKey(const ValueKey('command-copy')));
+    await tester.pumpAndSettle();
+    expect(
+      (await Clipboard.getData(Clipboard.kTextPlain))!.text,
+      s.rightEditor.selectedText,
+    );
+    await snapshot('diff-details');
     debugPrint('STEP: clipboard');
     final panes = find.byType(CodePane);
     await tester.tapAt(tester.getTopLeft(panes.at(1)) + const Offset(70, 20));

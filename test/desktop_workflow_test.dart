@@ -37,6 +37,86 @@ void desktopTest(String name, Future<void> Function(WidgetTester) callback) =>
     );
 
 void main() {
+  desktopTest('重新加载读取外部修改，取消时保留未保存编辑', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('fmerge-reload-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final left = File('${dir.path}/left.txt')..writeAsStringSync('left');
+    final right = File('${dir.path}/right.txt')..writeAsStringSync('right');
+    late CompareSession s;
+    await tester.runAsync(() async {
+      s = CompareSession(
+        await TextFile.read(left.path),
+        await TextFile.read(right.path),
+      );
+    });
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: s),
+    );
+    await waitUntil(tester, () => !s.busy);
+    s.rightEditor.text = 'unsaved';
+    await tester.pump(const Duration(milliseconds: 170));
+    right.writeAsStringSync('external');
+    await tester.tap(find.byKey(const ValueKey('command-reload')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(s.rightEditor.text, 'unsaved');
+    expect(right.readAsStringSync(), 'external');
+    await tester.tap(find.byKey(const ValueKey('command-reload')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('不保存'));
+    await waitUntil(
+      tester,
+      () =>
+          tester
+                  .widgetList<CodePane>(find.byType(CodePane))
+                  .last
+                  .controller
+                  .text ==
+              'external' &&
+          find.text('正在比较…').evaluate().isEmpty,
+    );
+    expect(
+      tester.widgetList<CodePane>(find.byType(CodePane)).first.controller.text,
+      'left',
+    );
+    expect(right.readAsStringSync(), 'external');
+    expect(tester.takeException(), isNull);
+  });
+
+  desktopTest('合并工具栏双向循环跳转冲突，编辑后使用更新的位置', (tester) async {
+    final s = CompareSession(
+      TextFile.empty('a\nleft1\nb\nc\nleft2\nd'),
+      TextFile.empty('a\nright1\nb\nc\nright2\nd'),
+      base: TextFile.empty('a\nbase1\nb\nc\nbase2\nd'),
+    );
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: s),
+    );
+    await waitUntil(tester, () => !s.busy);
+    expect(s.merger!.state.regions.length, 2);
+    Future<void> jump(String command, int index) async {
+      await tester.tap(find.byKey(ValueKey('command-$command')));
+      await tester.pumpAndSettle();
+      expect(
+        s.resultEditor!.selection.extentIndex,
+        s.merger!.state.regions[index].start,
+      );
+      expect(
+        tester.widgetList<CodePane>(find.byType(CodePane)).last.focus.hasFocus,
+        true,
+      );
+    }
+
+    await jump('nextConflict', 1);
+    await jump('nextConflict', 0);
+    await jump('previousConflict', 1);
+    s.resultEditor!.text = 'header\n${s.resultEditor!.text}';
+    await tester.pumpAndSettle();
+    await jump('previousConflict', 0);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final pair in [true, false]) {
     desktopTest('直接选择${pair ? '两个' : '一个后继续选择另一个'}文件，取消第二次选择不替换当前内容', (
       tester,

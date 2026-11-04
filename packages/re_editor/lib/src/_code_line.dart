@@ -101,6 +101,17 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   @override
   CodeLines get codeLines => value.codeLines;
 
+  int _displayTabSize = 4;
+  @override
+  int get displayTabSize => _displayTabSize;
+  @override
+  set displayTabSize(int value) {
+    if (value < 1 || value > 16) throw RangeError.range(value, 1, 16);
+    if (_displayTabSize == value) return;
+    _displayTabSize = value;
+    notifyListeners();
+  }
+
   @override
   CodeLineSelection get selection => value.selection;
 
@@ -2475,6 +2486,11 @@ class _CodeLineEditingControllerDelegate implements CodeLineEditingController {
 
   @override
   CodeLineOptions get options => _delegate.options;
+
+  @override
+  int get displayTabSize => _delegate.displayTabSize;
+  @override
+  set displayTabSize(int value) => _delegate.displayTabSize = value;
 
   @override
   void paste() {

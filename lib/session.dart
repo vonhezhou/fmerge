@@ -6,6 +6,7 @@ import 'package:flutter/material.dart' show Color;
 import 'package:re_editor/re_editor.dart';
 
 import 'core/diff.dart';
+import 'core/diff_navigation.dart';
 import 'core/compare_task.dart';
 import 'core/compare_worker.dart';
 import 'core/context_rows.dart';
@@ -61,6 +62,70 @@ class CompareSession extends ChangeNotifier {
   MergeSession? merger;
   final _positions = Expando<CodeLinePosition>();
   DiffDocument? diff;
+  List<DiffDocument>? branchDiffs;
+  List<List<InlineTarget>> _inlineTargets = const [[], []];
+  bool get comparisonCurrent =>
+      diff != null && !busy && error == null && _timer?.isActive != true;
+  List<InlineTarget> inlineChanges(int side) =>
+      comparisonCurrent ? _inlineTargets[side] : const [];
+
+  /// 始终使用未折叠的映射，避免把折叠提示或虚拟占位当作真实文本。
+  int? fullRow(int side, int line) {
+    final rows = (side == 0 ? _fullLeft : _fullRight)?.lineRows;
+    return rows != null && line >= 0 && line < rows.length ? rows[line] : null;
+  }
+
+  DiffRow? lineDetails(int side, int line) {
+    if (!comparisonCurrent) return null;
+    final row = fullRow(side, line);
+    if (row == null) return null;
+    if (!isMerge) return diff!.rows[row];
+    final a = lineAtRow(mergeAlignment!.localRows, row);
+    final b = lineAtRow(mergeAlignment!.remoteRows, row);
+    return _inputDetails(a, b);
+  }
+
+  DiffRow _inputDetails(int? a, int? b) {
+    List<TextRangeMark> marks(CodeDiffLayout? layout, int? line) => [
+      if (line != null)
+        for (final range in layout?.ranges[line] ?? const <CodeDiffRange>[])
+          TextRangeMark(range.start, range.end),
+    ];
+    return DiffRow(
+      leftLine: a,
+      rightLine: b,
+      left: a == null ? null : leftEditor.codeLines[a].text,
+      right: b == null ? null : rightEditor.codeLines[b].text,
+      leftMarks: marks(_fullLeft, a),
+      rightMarks: marks(_fullRight, b),
+    );
+  }
+
+  DiffRow? conflictDetails(int resultLine) {
+    if (!comparisonCurrent || !isMerge) return null;
+    final regions = merger!.state.regions.where(
+      (r) =>
+          resultLine >= r.start &&
+          (resultLine < r.end || r.start == r.end && resultLine == r.start),
+    );
+    if (regions.isEmpty) return null;
+    final chunk = regions.first.chunk;
+    int? inputLine(int side) {
+      if ((side == 0 ? chunk.left : chunk.right).isEmpty) return null;
+      var delta = 0;
+      for (final change in branchDiffs![side].changes) {
+        if (change.aStart > chunk.start) break;
+        if (change.aEnd > chunk.start || change.aStart == chunk.start) {
+          return change.bStart;
+        }
+        delta += change.bEnd - change.bStart - (change.aEnd - change.aStart);
+      }
+      return chunk.start + delta;
+    }
+
+    return _inputDetails(inputLine(0), inputLine(1));
+  }
+
   ThreeWayAlignment? mergeAlignment;
   List<int> get hunkRows => isMerge
       ? mergeAlignment?.changeRows ?? const []
@@ -423,6 +488,7 @@ class CompareSession extends ChangeNotifier {
               : runner(snapshot()));
           if (_disposed || generation != _generation) continue;
           diff = result.diff;
+          branchDiffs = result.branches;
           _programmatic = true;
           try {
             final branches = result.branches;
@@ -442,6 +508,25 @@ class CompareSession extends ChangeNotifier {
               _fullLeft = _layout(result.diff, true);
               _fullRight = _layout(result.diff, false);
             }
+            _inlineTargets = [
+              for (var side = 0; side < 2; side++)
+                if (!isMerge)
+                  inlineTargets(result.diff, side)
+                else
+                  [
+                    for (final (line, ranges)
+                        in (side == 0 ? _fullLeft! : _fullRight!).ranges.entries
+                            .map((e) => (e.key, e.value)))
+                      for (final range in ranges)
+                        InlineTarget(
+                          side,
+                          line,
+                          range.start,
+                          range.end,
+                          fullRow(side, line)!,
+                        ),
+                  ],
+            ];
             _applyLayouts();
           } finally {
             _programmatic = false;

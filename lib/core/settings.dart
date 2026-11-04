@@ -12,6 +12,7 @@ class Settings {
   double fontSize = 13;
   int contextLines = 3;
   bool contextOnly = false;
+  bool showOverview = true, showLineDetails = true;
   final shortcuts = ShortcutPreferences();
   bool get ignoreWhitespace => whitespace != WhitespaceMode.exact;
   set ignoreWhitespace(bool value) =>
@@ -65,6 +66,8 @@ class Settings {
     fontSize = number('fontSize', 13).clamp(10, 24);
     contextLines = number('contextLines', 3).clamp(0, 1000).toInt();
     contextOnly = flag('contextOnly', false);
+    showOverview = flag('showOverview', true);
+    showLineDetails = flag('showLineDetails', true);
     highlight = flag('highlight', true);
     toolbarLabels = flag('toolbarLabels', true);
     backup = flag('backup', true);
@@ -83,6 +86,8 @@ class Settings {
     'fontSize': fontSize,
     'contextLines': contextLines,
     'contextOnly': contextOnly,
+    'showOverview': showOverview,
+    'showLineDetails': showLineDetails,
     'highlight': highlight,
     'toolbarLabels': toolbarLabels,
     'backup': backup,

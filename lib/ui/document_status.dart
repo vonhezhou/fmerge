@@ -19,6 +19,8 @@ class DocumentStatus extends StatelessWidget {
     this.onEolChanged,
     this.saveEncoding = false,
     this.languageName,
+    this.changeSummary,
+    this.changeTooltip,
   });
   final TextFile file;
   final CodeLineEditingController controller;
@@ -30,6 +32,7 @@ class DocumentStatus extends StatelessWidget {
   final TextEncoding? encoding;
   final String? eol;
   final bool saveEncoding;
+  final String? changeSummary, changeTooltip;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -90,6 +93,22 @@ class DocumentStatus extends StatelessWidget {
                 : {'\n': 'LF', '\r\n': 'CRLF', '\r': 'CR'}[eol]!,
           ),
         ),
+        ValueListenableBuilder<CodeLineEditingValue>(
+          valueListenable: controller,
+          builder: (_, _, _) => PopupMenuButton<int>(
+            tooltip: 'Tab 显示宽度（不改写文件）',
+            onSelected: (value) => controller.displayTabSize = value,
+            itemBuilder: (_) => [
+              for (final size in [2, 4, 8])
+                CheckedPopupMenuItem(
+                  value: size,
+                  checked: controller.displayTabSize == size,
+                  child: Text('Tab $size'),
+                ),
+            ],
+            child: _value('Tab ${controller.displayTabSize}'),
+          ),
+        ),
         Expanded(
           child: Align(
             alignment: Alignment.centerLeft,
@@ -100,6 +119,17 @@ class DocumentStatus extends StatelessWidget {
             ),
           ),
         ),
+        if (changeSummary != null)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Tooltip(
+              message: changeTooltip ?? '',
+              child: Text(
+                changeSummary!,
+                style: const TextStyle(fontSize: 10, color: muted),
+              ),
+            ),
+          ),
         ValueListenableBuilder<CodeLineEditingValue>(
           valueListenable: controller,
           builder: (_, value, _) => Tooltip(

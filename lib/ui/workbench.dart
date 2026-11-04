@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 import '../core/access.dart';
 import '../core/git.dart';
 import '../core/files.dart';
+import '../core/diff_navigation.dart';
 import '../core/launch.dart';
 import '../core/merge.dart';
 import '../core/merge_labels.dart';
@@ -20,6 +21,8 @@ import '../session.dart';
 import '../palette.dart';
 import 'code_pane.dart';
 import 'document_status.dart';
+import 'diff_overview.dart';
+import 'line_details.dart';
 import 'toolbar_action.dart';
 import 'settings_dialog.dart';
 import 'format_dialog.dart';
@@ -433,6 +436,12 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         outputEncoding: previous?.output?.encoding,
       );
       if (previous != null) {
+        next.leftEditor.displayTabSize = previous.leftEditor.displayTabSize;
+        next.rightEditor.displayTabSize = previous.rightEditor.displayTabSize;
+        if (next.resultEditor != null) {
+          next.resultEditor!.displayTabSize =
+              previous.resultEditor?.displayTabSize ?? 4;
+        }
         next.leftLanguage = previous.leftLanguage;
         next.rightLanguage = previous.rightLanguage;
         next.resultLanguage = previous.resultLanguage;
@@ -645,6 +654,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       final regions = s.merger!.state.regions;
       if (regions.isEmpty) return;
       setState(() => _conflict = (_conflict + step) % regions.length);
+      s.resultEditor!.selection = CodeLineSelection.collapsed(
+        index: regions[_conflict].start.clamp(0, s.resultEditor!.lineCount - 1),
+        offset: 0,
+      );
       _resultScroll.makeVisible(
         CodeLinePosition(
           index: regions[_conflict].start.clamp(
@@ -695,6 +708,49 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       _hunk = 0;
       _leftEditable = !s.readOnly && s.leftDirty;
     });
+  }
+
+  void _navigateInline(int step) {
+    final s = session;
+    if (s == null || !s.comparisonCurrent) return;
+    final side = _active == 0 ? 0 : 1;
+    final source = side == 0 ? s.leftEditor : s.rightEditor;
+    final selection = source.selection;
+    final target = adjacentInlineTarget(
+      s.inlineChanges(side),
+      _active == 2 ? -1 : s.fullRow(side, selection.startIndex) ?? -1,
+      _active == 2 ? -1 : selection.startOffset,
+      step,
+    );
+    if (target == null) return;
+    final controller = target.side == 0 ? s.leftEditor : s.rightEditor;
+    controller.selection = CodeLineSelection(
+      baseIndex: target.line,
+      baseOffset: target.start,
+      extentIndex: target.line,
+      extentOffset: target.end,
+    );
+    (target.side == 0 ? _leftScroll : _rightScroll).makeVisible(
+      CodeLinePosition(index: target.line, offset: target.start),
+    );
+    (target.side == 0 ? _leftFocus : _rightFocus).requestFocus();
+    final hunk = s.hunkRows.lastIndexWhere(
+      (row) => row <= (controller.diffLayout?.lineRows[target.line] ?? 0),
+    );
+    if (hunk >= 0) setState(() => _hunk = hunk);
+  }
+
+  void _seekOverview(double fraction) {
+    final scroll = _leftScroll.verticalScroller;
+    if (scroll.positions.length != 1 || !scroll.position.hasContentDimensions) {
+      return;
+    }
+    final position = scroll.position;
+    scroll.jumpTo(
+      (fraction * (position.maxScrollExtent + position.viewportDimension) -
+              position.viewportDimension / 2)
+          .clamp(0, position.maxScrollExtent),
+    );
   }
 
   void _toggleWhitespace() {
@@ -898,6 +954,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       AppCommand.previousDiff => s != null && !s.busy && s.hunkRows.isNotEmpty,
       AppCommand.nextConflict || AppCommand.previousConflict =>
         s?.isMerge == true && s!.merger!.state.regions.isNotEmpty,
+      AppCommand.nextInlineDiff || AppCommand.previousInlineDiff =>
+        s != null && s.inlineChanges(_active == 0 ? 0 : 1).isNotEmpty,
       AppCommand.swapSides =>
         s != null && !s.isMerge && s.output == null && !s.busy && !_saving,
       AppCommand.contextOnly => s != null && !s.isMerge && !s.busy,
@@ -981,6 +1039,16 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         _navigate(1, conflicts: true);
       case AppCommand.previousConflict:
         _navigate(-1, conflicts: true);
+      case AppCommand.nextInlineDiff:
+        _navigateInline(1);
+      case AppCommand.previousInlineDiff:
+        _navigateInline(-1);
+      case AppCommand.toggleOverview:
+        setState(() => settings.showOverview = !settings.showOverview);
+        _saveSettings();
+      case AppCommand.toggleLineDetails:
+        setState(() => settings.showLineDetails = !settings.showLineDetails);
+        _saveSettings();
       case AppCommand.swapSides:
         _swapSides();
       case AppCommand.takeLeft:
@@ -1071,6 +1139,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   action: _reload,
                 ),
               Expanded(child: session == null ? _welcome() : _workspace()),
+              if (session != null && settings.showLineDetails) _lineDetails(),
               _status(),
             ],
           ),
@@ -1366,10 +1435,121 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     );
   }
 
-  Widget _toolbar() {
+  Widget _toolbar() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [_mainToolbar(), if (session != null) _detailToolbar()],
+  );
+
+  bool _toolbarEnabled(AppCommand command) => switch (command) {
+    AppCommand.copy => editor?.selection.isCollapsed == false,
+    AppCommand.paste => session != null && !_activeReadOnly,
+    _ => _enabled(command),
+  };
+
+  void _runToolbarCommand(AppCommand command) {
+    if (!_toolbarEnabled(command)) return;
+    if (command == AppCommand.copy || command == AppCommand.paste) {
+      // 工具栏点击会改变焦点，直接对当前文档操作，避免把剪贴板交给按钮。
+      final target = editor!;
+      if (command == AppCommand.copy) {
+        unawaited(target.copy());
+      } else {
+        target.paste();
+      }
+      (_active == 0
+              ? _leftFocus
+              : _active == 2
+              ? _resultFocus
+              : _rightFocus)
+          .requestFocus();
+      return;
+    }
+    _runCommand(command);
+  }
+
+  Widget _detailToolbar() => Container(
+    height: 36,
+    decoration: const BoxDecoration(
+      color: panel,
+      border: Border(bottom: BorderSide(color: border)),
+    ),
+    child: SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final item in [
+            (AppCommand.copy, Icons.copy_outlined, '复制'),
+            (AppCommand.paste, Icons.paste_outlined, '粘贴'),
+            (AppCommand.goToLine, Icons.pin_outlined, '跳转行'),
+            (AppCommand.previousInlineDiff, Icons.first_page, '上一行内差异'),
+            (AppCommand.nextInlineDiff, Icons.last_page, '下一行内差异'),
+            (AppCommand.toggleOverview, Icons.view_week_outlined, '概览条'),
+            (AppCommand.toggleLineDetails, Icons.view_stream_outlined, '行详情'),
+          ])
+            ListenableBuilder(
+              listenable: Listenable.merge([
+                session!.leftEditor,
+                session!.rightEditor,
+                if (session!.resultEditor != null) session!.resultEditor!,
+              ]),
+              builder: (_, _) => Tooltip(
+                message: _shortcutHint(item.$1.label, item.$1),
+                child: TextButton.icon(
+                  key: ValueKey('command-${item.$1.name}'),
+                  onPressed: _toolbarEnabled(item.$1)
+                      ? () => _runToolbarCommand(item.$1)
+                      : null,
+                  icon: Icon(item.$2, size: 16),
+                  label: settings.toolbarLabels
+                      ? Text(item.$3, style: const TextStyle(fontSize: 11))
+                      : const SizedBox.shrink(),
+                  style: TextButton.styleFrom(
+                    foregroundColor:
+                        item.$1 == AppCommand.toggleOverview &&
+                                settings.showOverview ||
+                            item.$1 == AppCommand.toggleLineDetails &&
+                                settings.showLineDetails
+                        ? accent
+                        : muted,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _lineDetails() {
+    final s = session!;
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        s.leftEditor,
+        s.rightEditor,
+        if (s.resultEditor != null) s.resultEditor!,
+      ]),
+      builder: (_, _) {
+        final side = _active == 0 ? 0 : 1;
+        final line =
+            (side == 0 ? s.leftEditor : s.rightEditor).selection.extentIndex;
+        return LineDetails(
+          row: _active == 2
+              ? s.conflictDetails(s.resultEditor!.selection.extentIndex)
+              : s.lineDetails(side, line),
+          tabSizes: [s.leftEditor.displayTabSize, s.rightEditor.displayTabSize],
+          fontSize: settings.fontSize,
+          merge: s.isMerge,
+          conflict: _active == 2,
+          onClose: () => _runCommand(AppCommand.toggleLineDetails),
+        );
+      },
+    );
+  }
+
+  Widget _mainToolbar() {
     final s = session;
     Widget divider() =>
-        const VerticalDivider(width: 10, indent: 10, endIndent: 10);
+        const VerticalDivider(width: 6, indent: 10, endIndent: 10);
     return Container(
       height: settings.toolbarLabels ? 66 : 44,
       padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -1404,6 +1584,12 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                             '保存',
                           ),
                           if (s != null) ...[
+                            _commandTool(
+                              AppCommand.reload,
+                              Icons.refresh,
+                              '重新加载',
+                              title: '从磁盘重新加载，读取外部编辑器的修改',
+                            ),
                             divider(),
                             _commandTool(AppCommand.undo, Icons.undo, '撤销'),
                             _commandTool(AppCommand.redo, Icons.redo, '重做'),
@@ -1426,7 +1612,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                                   ? '正在比较…'
                                   : s.hunkRows.isEmpty
                                   ? '文件相同'
-                                  : '${_hunk + 1} / ${s.hunkRows.length} 处差异',
+                                  : '${_hunk + 1} / ${s.hunkRows.length}',
                               style: const TextStyle(
                                 color: muted,
                                 fontSize: 11,
@@ -1437,6 +1623,19 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                               Icons.keyboard_arrow_down,
                               '下一处',
                             ),
+                            if (s.isMerge) ...[
+                              divider(),
+                              _commandTool(
+                                AppCommand.previousConflict,
+                                Icons.skip_previous,
+                                '上一处冲突',
+                              ),
+                              _commandTool(
+                                AppCommand.nextConflict,
+                                Icons.skip_next,
+                                '下一处冲突',
+                              ),
+                            ],
                             if (!s.isMerge) ...[
                               divider(),
                               _commandTool(
@@ -1509,34 +1708,68 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   Widget _workspace() {
     final s = session!;
-    final top = Row(
-      children: [
-        Expanded(
-          child: _pane(
-            0,
-            s.left,
-            s.leftEditor,
-            _leftFocus,
-            _leftScroll,
-            _leftFind!,
-            s.isMerge ? s.mergeLabels.leftTitle : '原始 · Left',
-            readOnly: s.readOnly || s.isMerge || !_leftEditable,
+    CodeDiffLayout? overviewLayout(int side) {
+      final layout = (side == 0 ? s.leftEditor : s.rightEditor).diffLayout;
+      if (!s.isMerge || layout == null || s.branchDiffs == null) return layout;
+      return CodeDiffLayout(
+        lineRows: layout.lineRows,
+        totalRows: layout.totalRows,
+        rowColors: {
+          ...layout.rowColors,
+          for (final (_, row) in s.branchDiffs![side].changedRows)
+            if (row.rightLine == null && row.leftLine != null)
+              s.mergeAlignment!.baseRows[row.leftLine!]: amber,
+        },
+      );
+    }
+
+    final top = NotificationListener<ScrollMetricsNotification>(
+      onNotification: (_) {
+        if (mounted) setState(() {});
+        return false;
+      },
+      child: Row(
+        children: [
+          if (settings.showOverview)
+            Padding(
+              padding: EdgeInsets.only(
+                top: (s.isMerge ? 70 : 42) + _sharedFindHeight,
+                bottom: 32,
+              ),
+              child: DiffOverview(
+                left: overviewLayout(0),
+                right: overviewLayout(1),
+                scroll: _leftScroll.verticalScroller,
+                onSeek: s.comparisonCurrent ? _seekOverview : null,
+              ),
+            ),
+          Expanded(
+            child: _pane(
+              0,
+              s.left,
+              s.leftEditor,
+              _leftFocus,
+              _leftScroll,
+              _leftFind!,
+              s.isMerge ? s.mergeLabels.leftTitle : '原始 · Left',
+              readOnly: s.readOnly || s.isMerge || !_leftEditable,
+            ),
           ),
-        ),
-        const VerticalDivider(width: 6, thickness: 1),
-        Expanded(
-          child: _pane(
-            1,
-            s.right,
-            s.rightEditor,
-            _rightFocus,
-            _rightScroll,
-            _rightFind!,
-            s.isMerge ? s.mergeLabels.rightTitle : '修改 · Right',
-            readOnly: s.readOnly || s.isMerge,
+          const VerticalDivider(width: 6, thickness: 1),
+          Expanded(
+            child: _pane(
+              1,
+              s.right,
+              s.rightEditor,
+              _rightFocus,
+              _rightScroll,
+              _rightFind!,
+              s.isMerge ? s.mergeLabels.rightTitle : '修改 · Right',
+              readOnly: s.readOnly || s.isMerge,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
     if (!s.isMerge) return top;
     return LayoutBuilder(
@@ -1703,6 +1936,18 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       DocumentStatus(
         file: file,
         controller: controller,
+        changeSummary: side == 2
+            ? null
+            : !session!.comparisonCurrent
+            ? '…'
+            : session!.isMerge
+            ? '+${session!.branchDiffs![side].added} −${session!.branchDiffs![side].removed}'
+            : side == 0
+            ? '−${session!.diff!.removed}'
+            : '+${session!.diff!.added}',
+        changeTooltip: session!.isMerge
+            ? '本侧相对共同祖先的新增 / 删除行数；遵循当前比较规则'
+            : '相对另一侧的变化行数；遵循当前比较规则',
         language: _languageOverride(side),
         languageName: side == 2
             ? session!.output?.path ?? session!.left.name
@@ -1838,8 +2083,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              tooltip: '上一处冲突 · Shift F8',
-              onPressed: () => _navigate(-1, conflicts: true),
+              tooltip: _shortcutHint('上一处冲突', AppCommand.previousConflict),
+              onPressed: () => _runCommand(AppCommand.previousConflict),
               icon: const Icon(Icons.chevron_left, size: 18),
             ),
             Text(
@@ -1847,8 +2092,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               style: const TextStyle(fontSize: 11, color: muted),
             ),
             IconButton(
-              tooltip: '下一处冲突 · F8',
-              onPressed: () => _navigate(1, conflicts: true),
+              tooltip: _shortcutHint('下一处冲突', AppCommand.nextConflict),
+              onPressed: () => _runCommand(AppCommand.nextConflict),
               icon: const Icon(Icons.chevron_right, size: 18),
             ),
             for (final item in [

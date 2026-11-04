@@ -8,6 +8,7 @@ class _CodeHighlighter extends ValueNotifier<List<_HighlightResult>> {
 
   CodeLineEditingController _controller;
   CodeHighlightTheme? _theme;
+  int _displayTabSize = 4;
 
   _CodeHighlighter({
     required BuildContext context,
@@ -49,6 +50,7 @@ class _CodeHighlighter extends ValueNotifier<List<_HighlightResult>> {
     int? maxLengthSingleLineRendering,
   }) {
     _provider.updateBaseStyle(style);
+    _provider.updateTabSize(_controller.displayTabSize);
     _provider.updateMaxLengthSingleLineRendering(maxLengthSingleLineRendering);
     return _provider.build(_controller.buildTextSpan(
       context: _context,
@@ -160,6 +162,11 @@ class _CodeHighlighter extends ValueNotifier<List<_HighlightResult>> {
   }
 
   void _onCodesChanged() {
+    if (_displayTabSize != _controller.displayTabSize) {
+      _displayTabSize = _controller.displayTabSize;
+      _provider.updateTabSize(_displayTabSize);
+      notifyListeners();
+    }
     if (_controller.preValue?.codeLines == _controller.codeLines) {
       return;
     }

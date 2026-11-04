@@ -244,15 +244,10 @@ DiffDocument compare(DiffInput input) {
   }
 
   final ao = offsets(ac), bo = offsets(bc);
+  // 保留零长度的插入/删除边界，让两侧可逐片段导航；绘制时自然没有填充面积。
   return (
-    [
-      for (final c in result.changes)
-        if (c.aEnd > c.aStart) TextRangeMark(ao[c.aStart], ao[c.aEnd]),
-    ],
-    [
-      for (final c in result.changes)
-        if (c.bEnd > c.bStart) TextRangeMark(bo[c.bStart], bo[c.bEnd]),
-    ],
+    [for (final c in result.changes) TextRangeMark(ao[c.aStart], ao[c.aEnd])],
+    [for (final c in result.changes) TextRangeMark(bo[c.bStart], bo[c.bEnd])],
   );
 }
 

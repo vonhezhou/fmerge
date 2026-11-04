@@ -203,6 +203,14 @@ class _CodeParagraphProvider {
   ui.ParagraphStyle? _paragraphStyle;
   double? _preferredLineHeight;
   int? _maxLengthSingleLineRendering;
+  int _tabSize = 4;
+  double _spaceWidth = 0;
+
+  void updateTabSize(int size) {
+    if (_tabSize == size) return;
+    _tabSize = size;
+    clearCache();
+  }
 
   _CodeParagraphProvider() : _cachedParagraphs = {};
 
@@ -230,6 +238,9 @@ class _CodeParagraphProvider {
       style: style
     );
     _preferredLineHeight = painter.preferredLineHeight;
+    painter.text = TextSpan(text: ' ', style: style);
+    painter.layout();
+    _spaceWidth = painter.width;
     painter.dispose();
     clearCache();
   }
@@ -324,7 +335,40 @@ class _CodeParagraphProvider {
       throw AssertionError('Must call updateBaseStyle before build Paragraph.');
     }
     final ui.ParagraphBuilder builder = ui.ParagraphBuilder(style);
-    span.build(builder);
+    // 每个 Tab 仍占一个 UTF-16 位置，选择、IME、复制和差异范围无需转换。
+    // 仅在绘制时换成一个带额外字距的空格，宽度推进到下个制表位。
+    var column = 0;
+    void buildSpan(TextSpan current) {
+      builder.pushStyle((current.style ?? const TextStyle()).getTextStyle());
+      final text = current.text;
+      if (text != null) {
+        final parts = text.split('\t');
+        for (var i = 0; i < parts.length; i++) {
+          builder.addText(parts[i]);
+          column += parts[i].runes.length;
+          if (i < parts.length - 1) {
+            final width = _tabSize - column % _tabSize;
+            builder.pushStyle(ui.TextStyle(letterSpacing: (width - 1) * _spaceWidth));
+            builder.addText(' ');
+            builder.pop();
+            column += width;
+          }
+        }
+      }
+      for (final child in current.children ?? const <InlineSpan>[]) {
+        if (child is TextSpan) {
+          buildSpan(child);
+        } else {
+          child.build(builder);
+        }
+      }
+      builder.pop();
+    }
+    if (plainText.contains('\t')) {
+      buildSpan(span);
+    } else {
+      span.build(builder);
+    }
     final ui.Paragraph paragraph = builder.build();
     paragraph.layout(_constraints!);
     return _ParagraphImpl(
