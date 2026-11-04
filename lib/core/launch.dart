@@ -16,7 +16,8 @@ class LaunchOptions {
   /// 生成可复制的 Git 配置；只展示，不修改用户的全局配置。
   static String gitConfiguration(String executable) {
     String quote(String value) => "'${value.replaceAll("'", "'\"'\"'")}'";
-    final tool = quote(executable);
+    final tool =
+        '"${executable.replaceAll(r'\', r'\\').replaceAll(r'$', r'\$').replaceAll('`', r'\`').replaceAll('"', r'\"')}"';
     final diff = '$tool "\$LOCAL" "\$REMOTE"';
     final merge =
         '$tool --base "\$BASE" --local "\$LOCAL" --remote "\$REMOTE" --output "\$MERGED"';

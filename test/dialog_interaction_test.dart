@@ -41,12 +41,16 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.text('文件与权限').first);
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('撤销已授权文件与目录'));
     await tester.tap(find.text('撤销已授权文件与目录'));
     await tester.pump();
     expect(
       tester
-          .widget<TextButton>(find.widgetWithText(TextButton, '正在撤销文件授权…'))
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, '正在撤销文件授权…'),
+          )
           .onPressed,
       isNull,
     );

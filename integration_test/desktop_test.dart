@@ -16,6 +16,7 @@ import 'package:fmerge/core/git.dart';
 import 'package:fmerge/core/merge_labels.dart';
 import 'package:fmerge/core/launch.dart';
 import 'package:fmerge/core/settings.dart';
+import 'package:fmerge/core/shortcuts.dart';
 import 'package:fmerge/ui/code_pane.dart';
 
 void main() {
@@ -87,18 +88,24 @@ void main() {
     await ready(s);
     expect(s.leftEditor.diffLayout!.totalRows, s.rightEditor.lineCount);
     await snapshot('diff');
+    debugPrint('STEP: clipboard');
     final panes = find.byType(CodePane);
-    await tester.tapAt(tester.getCenter(panes.at(1)));
+    await tester.tapAt(tester.getTopLeft(panes.at(1)) + const Offset(70, 20));
+    await tester.pumpAndSettle();
     final selectedText = s.rightEditor.text;
     s.rightEditor.selectAll();
     await s.rightEditor.copy();
     expect((await Clipboard.getData(Clipboard.kTextPlain))!.text, selectedText);
+    debugPrint('STEP: edited diff');
     s.rightEditor.runRevocableOp(
       () => s.rightEditor.text = 'class A {\n  final value = 3;\n}\n',
     );
     await tester.pump(const Duration(milliseconds: 180));
     await ready(s);
     // 编辑器持有焦点时发送保存快捷键，确保内部快捷键没有吞掉保存。
+    debugPrint('STEP: save shortcut');
+    tester.widgetList<CodePane>(panes).last.focus.requestFocus();
+    await tester.pump();
     expect(tester.widgetList<CodePane>(panes).last.focus.hasFocus, true);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
@@ -119,6 +126,7 @@ void main() {
     );
     expect((await TextFile.read(right.path)).encoding, TextEncoding.utf8Bom);
     expect(await File('${right.path}.bak').exists(), true);
+    debugPrint('STEP: goto shortcut');
     // 原生菜单必须编辑当前对话框字段，不能误改背后的文件。
     final savedText = s.rightEditor.text;
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
@@ -211,7 +219,7 @@ void main() {
     await tester.tap(find.widgetWithText(OutlinedButton, '采用右侧'));
     await tester.pumpAndSettle();
     expect(merge.resultEditor!.text, startsWith('// 保留手工编辑\na\nREMOTE'));
-    await tester.tap(find.byTooltip('保存'));
+    await tester.tap(find.byKey(const ValueKey('command-save')));
     final mergeDeadline = DateTime.now().add(const Duration(seconds: 10));
     while (merge.resultDirty && DateTime.now().isBefore(mergeDeadline)) {
       await tester.pump(const Duration(milliseconds: 40));
@@ -264,20 +272,12 @@ void main() {
       largePanes.last.scroll.verticalScroller.offset,
     );
     expect(large.leftEditor.text, original.join('\n'));
-    await tester.tap(find.byTooltip('显示与比较选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
-    );
+    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
     await tester.pumpAndSettle();
     expect(large.leftEditor.diffLayout!.totalRows, 10);
     expect(large.rightEditor.diffLayout!.totalRows, 10);
     expect(large.leftEditor.text, original.join('\n'));
-    await tester.tap(find.byTooltip('显示与比较选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
-    );
+    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
@@ -424,13 +424,47 @@ void main() {
       ),
     );
     await snapshot('welcome');
-    await tester.tap(find.byTooltip('设置'));
+    await tester.tap(find.byKey(const ValueKey('command-settings')));
     await tester.pumpAndSettle();
     await snapshot('settings');
+    await tester.tap(find.text('编辑器与外观').first);
+    await tester.pumpAndSettle();
+    await snapshot('settings-editor');
+    await tester.tap(find.text('Git 集成').first);
+    await tester.pumpAndSettle();
+    await snapshot('settings-git');
+    await tester.tap(find.text('复制文件比较配置'));
+    await tester.pumpAndSettle();
+    expect(
+      (await Clipboard.getData(Clipboard.kTextPlain))!.text,
+      contains('difftool.fmerge.cmd'),
+    );
+    await tester.tap(find.text('快捷键').first);
+    await tester.pumpAndSettle();
+    await snapshot('settings-shortcuts');
+    await tester.tap(find.byKey(const ValueKey('shortcut-open')));
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已用于“保存”'), findsOneWidget);
+    await snapshot('shortcut-conflict');
+    await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存快捷键'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('文件与权限').first);
+    await tester.pumpAndSettle();
+    await snapshot('settings-files');
     await tester.tap(find.text('完成'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新建文本比较'));
     await tester.pumpAndSettle();
+    final configured = tester
+        .widget<CodePane>(find.byType(CodePane).last)
+        .settings;
+    expect(configured.shortcuts[AppCommand.open]!.key, LogicalKeyboardKey.f9);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyG);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
@@ -453,5 +487,5 @@ void main() {
     expect(find.text('正则无效'), findsOneWidget);
     await snapshot('find-invalid');
     expect(tester.takeException(), isNull);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 }

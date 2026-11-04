@@ -22,6 +22,7 @@ import 'package:re_highlight/styles/atom-one-dark.dart';
 
 import '../palette.dart';
 import '../core/settings.dart';
+import '../core/shortcuts.dart';
 
 String languageFor(String name) => switch (name.split('.').last.toLowerCase()) {
   'dart' => 'dart',
@@ -213,6 +214,7 @@ class _CodePaneState extends State<CodePane> {
       readOnly: readOnly,
       wordWrap: false,
       autofocus: false,
+      shortcutsActivatorsBuilder: _AppEditorShortcuts(settings.shortcuts),
       maxLengthSingleLineRendering: 32000,
       padding: EdgeInsets.fromLTRB(
         12,
@@ -538,5 +540,51 @@ class ContextMenuControllerImpl implements SelectionToolbarController {
       ),
     );
     Overlay.of(context).insert(_entry!);
+  }
+}
+
+/// 编辑器与工作台使用同一份键位；已分配给 App 操作的键不再被光标快捷键吞掉。
+class _AppEditorShortcuts extends CodeShortcutsActivatorsBuilder {
+  _AppEditorShortcuts(this.preferences)
+    : signature = AppCommand.values
+          .map((command) => preferences[command]?.signature ?? '-')
+          .join('|');
+  final ShortcutPreferences preferences;
+  final String signature;
+  @override
+  bool operator ==(Object other) =>
+      other is _AppEditorShortcuts && other.signature == signature;
+  @override
+  int get hashCode => signature.hashCode;
+  @override
+  List<ShortcutActivator>? build(CodeShortcutType type) {
+    final command = const {
+      CodeShortcutType.save: AppCommand.save,
+      CodeShortcutType.find: AppCommand.find,
+      CodeShortcutType.replace: AppCommand.replace,
+      CodeShortcutType.undo: AppCommand.undo,
+      CodeShortcutType.redo: AppCommand.redo,
+      CodeShortcutType.copy: AppCommand.copy,
+      CodeShortcutType.cut: AppCommand.cut,
+      CodeShortcutType.paste: AppCommand.paste,
+      CodeShortcutType.selectAll: AppCommand.selectAll,
+    }[type];
+    if (command != null) {
+      final binding = preferences[command];
+      return binding == null ? [] : [binding.activator];
+    }
+    final defaults = const DefaultCodeShortcutsActivatorsBuilder().build(type);
+    return defaults?.where((activator) {
+      if (activator is! SingleActivator) return true;
+      return !AppCommand.values.any((command) {
+        final binding = preferences[command]?.activator;
+        return binding != null &&
+            binding.trigger == activator.trigger &&
+            binding.control == activator.control &&
+            binding.meta == activator.meta &&
+            binding.shift == activator.shift &&
+            binding.alt == activator.alt;
+      });
+    }).toList();
   }
 }

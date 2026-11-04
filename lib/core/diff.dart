@@ -49,7 +49,7 @@ class DiffDocument {
 // 保留尾部空行，从而让“缺少末尾换行”成为可见差异。输入不做换行归一化。
 List<String> splitLines(String text) => text.split('\n');
 
-enum WhitespaceMode { exact, trailing, all }
+enum WhitespaceMode { exact, trailing, all, edges }
 
 class CompareOptions {
   const CompareOptions({
@@ -64,9 +64,19 @@ class CompareOptions {
       WhitespaceMode.exact => line,
       WhitespaceMode.trailing => line.replaceFirst(RegExp(r'[ \t]+$'), ''),
       WhitespaceMode.all => line.replaceAll(RegExp(r'[ \t]'), ''),
+      WhitespaceMode.edges => line.replaceAll(RegExp(r'^[ \t]+|[ \t]+$'), ''),
     };
     return ignoreCase ? value.toLowerCase() : value;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CompareOptions &&
+      other.whitespace == whitespace &&
+      other.ignoreCase == ignoreCase &&
+      other.ignoreEol == ignoreEol;
+  @override
+  int get hashCode => Object.hash(whitespace, ignoreCase, ignoreEol);
 }
 
 class DiffInput {
@@ -87,6 +97,14 @@ DiffDocument compare(DiffInput input) {
       raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   final a = logical(input.left), b = logical(input.right);
   List<String> keys(List<String> lines, String raw) {
+    // 默认忽略换行时无需创建逐行换行列表；精确比较还能直接复用行数组。
+    if (input.options.ignoreEol) {
+      if (input.options.whitespace == WhitespaceMode.exact &&
+          !input.options.ignoreCase) {
+        return lines;
+      }
+      return lines.map(input.options.key).toList();
+    }
     final ends = RegExp(r'\r\n|\r|\n')
         .allMatches(raw)
         .map((m) => m[0]!)

@@ -73,6 +73,7 @@ class CompareSession extends ChangeNotifier {
   CompareOptions options = const CompareOptions();
   bool showWhitespace = false;
   bool contextOnly = false;
+  int contextLines = 3;
   ContextRows? _context;
   CodeDiffLayout? _fullLeft, _fullRight;
 
@@ -104,8 +105,9 @@ class CompareSession extends ChangeNotifier {
     refresh();
   }
 
-  void setContextOnly(bool value) {
+  void setContextOnly(bool value, {int? context}) {
     contextOnly = value;
+    if (context != null) contextLines = context.clamp(0, 1000);
     _applyLayouts();
     notifyListeners();
   }
@@ -117,7 +119,7 @@ class CompareSession extends ChangeNotifier {
         ? ContextRows(diff!.rows.length, {
             for (var i = 0; i < diff!.rows.length; i++)
               if (diff!.rows[i].changed) i,
-          })
+          }, context: contextLines)
         : null;
     CodeDiffLayout project(CodeDiffLayout layout) {
       final map = _context;
@@ -143,6 +145,26 @@ class CompareSession extends ChangeNotifier {
     leftEditor.diffLayout = project(_fullLeft!);
     rightEditor.diffLayout = project(_fullRight!);
     _programmatic = false;
+  }
+
+  void setShowWhitespace(bool value) {
+    showWhitespace = value;
+    CodeDiffLayout? update(CodeDiffLayout? layout) => layout == null
+        ? null
+        : CodeDiffLayout(
+            lineRows: layout.lineRows,
+            totalRows: layout.totalRows,
+            hiddenLines: layout.hiddenLines,
+            rowLabels: layout.rowLabels,
+            rowColors: layout.rowColors,
+            ranges: layout.ranges,
+            showWhitespace: value,
+          );
+    _fullLeft = update(_fullLeft);
+    _fullRight = update(_fullRight);
+    updateResultLayout();
+    _applyLayouts();
+    notifyListeners();
   }
 
   bool get isMerge => base != null;
@@ -345,8 +367,11 @@ class CompareSession extends ChangeNotifier {
     notifyListeners();
     try {
       final inputs = DiffInput(
-        left.materialize(leftEditor.text),
-        right.materialize(rightEditor.text),
+        // 显示忽略换行时无需在主线程执行换行重建；保存仍走文件模型的无损路径。
+        options.ignoreEol ? leftEditor.text : left.materialize(leftEditor.text),
+        options.ignoreEol
+            ? rightEditor.text
+            : right.materialize(rightEditor.text),
         options,
       );
       final result = await compute(compare, inputs);
@@ -392,9 +417,10 @@ class CompareSession extends ChangeNotifier {
       if (row.changed) {
         colors[i] = line == null ? bg : (left ? removedBg : addedBg);
       }
-      if (line != null) {
+      final marks = left ? row.leftMarks : row.rightMarks;
+      if (line != null && marks.isNotEmpty) {
         ranges[line] = [
-          for (final m in left ? row.leftMarks : row.rightMarks)
+          for (final m in marks)
             CodeDiffRange(m.start, m.end, left ? removedInline : addedInline),
         ];
       }
@@ -419,6 +445,7 @@ class CompareSession extends ChangeNotifier {
       final line = row.rightLine;
       if (line == null) continue;
       if (row.changed) colors[rows[line]] = local ? removedBg : addedBg;
+      if (row.rightMarks.isEmpty) continue;
       ranges[line] = [
         for (final mark in row.rightMarks)
           CodeDiffRange(

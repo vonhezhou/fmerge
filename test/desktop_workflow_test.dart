@@ -53,7 +53,7 @@ void main() {
       FileSelectorPlatform.instance = picker;
       addTearDown(() => FileSelectorPlatform.instance = previous);
       await tester.pumpWidget(FmergeApp(settings: Settings(persist: false)));
-      await tester.tap(find.byTooltip('打开比较'));
+      await tester.tap(find.byKey(const ValueKey('command-open')));
       await waitUntil(
         tester,
         () =>
@@ -69,7 +69,7 @@ void main() {
       expect(find.byType(DocumentStatus), findsNWidgets(2));
       picker.paths = [left.path];
       picker.second = null;
-      await tester.tap(find.byTooltip('打开比较'));
+      await tester.tap(find.byKey(const ValueKey('command-open')));
       await tester.pumpAndSettle();
       expect(
         identical(
@@ -92,14 +92,15 @@ void main() {
     await waitUntil(tester, () => !s.busy);
     ToolbarAction takeRight() => tester.widget<ToolbarAction>(
       find.byWidgetPredicate(
-        (w) => w is ToolbarAction && w.tooltip == '使用右侧差异块',
+        (w) =>
+            w is ToolbarAction && w.key == const ValueKey('command-takeRight'),
       ),
     );
     expect(takeRight().onPressed, isNull);
-    await tester.tap(find.byTooltip('启用左侧编辑'));
+    await tester.tap(find.byKey(const ValueKey('command-toggleLeftEdit')));
     await tester.pumpAndSettle();
     expect(takeRight().onPressed, isNotNull);
-    await tester.tap(find.byTooltip('使用右侧差异块'));
+    await tester.tap(find.byKey(const ValueKey('command-takeRight')));
     await tester.pump(const Duration(milliseconds: 170));
     await waitUntil(tester, () => !s.busy);
     expect(s.leftEditor.text, 'right');
@@ -322,7 +323,9 @@ void main() {
     s.rightEditor.text = 'new';
     await tester.pump(const Duration(milliseconds: 170));
     await waitUntil(tester, () => !s.busy);
-    await tester.runAsync(() => tester.tap(find.byTooltip('保存')));
+    await tester.runAsync(
+      () => tester.tap(find.byKey(const ValueKey('command-save'))),
+    );
     await waitUntil(tester, () => !s.rightDirty);
     expect(
       file.readAsBytesSync(),

@@ -42,18 +42,26 @@ void main() {
       FmergeApp(settings: Settings(persist: false), initial: s),
     );
     await ready(tester);
-    for (final tooltip in ['保存', '下一处差异 · F7', '使用左侧差异块', '启用左侧编辑']) {
-      expect(find.byTooltip(tooltip).hitTestable(), findsOneWidget);
+    for (final command in [
+      'save',
+      'nextDiff',
+      'takeLeft',
+      'toggleLeftEdit',
+      'swapSides',
+      'ignoreWhitespace',
+      'contextOnly',
+      'settings',
+    ]) {
+      expect(
+        find.byKey(ValueKey('command-$command')).hitTestable(),
+        findsOneWidget,
+      );
     }
-    await tester.tap(find.byTooltip('显示与比较选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
-    );
+    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
     await tester.pumpAndSettle();
     expect(s.contextOnly, true);
     expect(s.rightEditor.text, changed.join('\n'));
-    await tester.tap(find.byTooltip('启用左侧编辑'));
+    await tester.tap(find.byKey(const ValueKey('command-toggleLeftEdit')));
     await tester.pumpAndSettle();
     expect(
       tester.widgetList<CodePane>(find.byType(CodePane)).first.readOnly,
@@ -75,7 +83,9 @@ void main() {
       tester
           .widget<ToolbarAction>(
             find.byWidgetPredicate(
-              (w) => w is ToolbarAction && w.tooltip == '下一处差异 · F7',
+              (w) =>
+                  w is ToolbarAction &&
+                  w.key == const ValueKey('command-nextDiff'),
             ),
           )
           .onPressed,
@@ -112,7 +122,10 @@ void main() {
     await ready(tester);
     ToolbarAction action(String label) => tester.widget<ToolbarAction>(
       find.byWidgetPredicate(
-        (widget) => widget is ToolbarAction && widget.tooltip == label,
+        (widget) =>
+            widget is ToolbarAction &&
+            widget.key ==
+                ValueKey('command-${label == '撤销' ? 'undo' : 'redo'}'),
       ),
     );
     expect(action('撤销').onPressed, isNull);
@@ -120,7 +133,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     expect(action('撤销').onPressed, isNotNull);
-    await tester.tap(find.byTooltip('撤销'));
+    await tester.tap(find.byKey(const ValueKey('command-undo')));
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     expect(s.rightEditor.text, 'right');
@@ -265,45 +278,27 @@ void main() {
       FmergeApp(settings: Settings(persist: false), initial: s),
     );
     await ready(tester);
-    await tester.tap(find.byTooltip('显示与比较选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
-    );
+    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
     await tester.pumpAndSettle();
     expect(s.contextOnly, true);
     expect(s.leftEditor.diffLayout!.totalRows, 9);
     expect(s.rightEditor.text, right.join('\n'));
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('显示与比较选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(CheckedPopupMenuItem<String>, '仅显示差异及前后 3 行'),
-    );
+    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
     await tester.pumpAndSettle();
     expect(s.leftEditor.diffLayout!.totalRows, 80);
-    await tester.tap(find.byTooltip('更多操作'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('交换左右文件'));
+    await tester.tap(find.byKey(const ValueKey('command-swapSides')));
     await ready(tester);
     expect(s.leftEditor.text, right.join('\n'));
     expect(s.rightEditor.text, lines.join('\n'));
-    s.rightEditor.text = s.leftEditor.text.replaceFirst('line 0', 'line  0');
+    s.rightEditor.text = s.leftEditor.text.replaceFirst('line 0', '  line 0  ');
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     expect(s.diff!.changes.length, 1);
-    await tester.tap(find.byTooltip('显示与比较选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(CheckedPopupMenuItem<String>, '忽略空白差异'),
-    );
+    await tester.tap(find.byKey(const ValueKey('command-ignoreWhitespace')));
     await ready(tester);
     expect(s.diff!.changes, isEmpty);
-    await tester.tap(find.byTooltip('显示与比较选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(CheckedPopupMenuItem<String>, '忽略空白差异'),
-    );
+    await tester.tap(find.byKey(const ValueKey('command-ignoreWhitespace')));
     await ready(tester);
     expect(s.diff!.changes.length, 1);
     expect(tester.takeException(), isNull);
@@ -371,7 +366,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     await tester.runAsync(() async {
-      await tester.tap(find.byTooltip('保存'));
+      await tester.tap(find.byKey(const ValueKey('command-save')));
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (s.rightDirty && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -386,7 +381,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     await tester.runAsync(() async {
-      await tester.tap(find.byTooltip('保存'));
+      await tester.tap(find.byKey(const ValueKey('command-save')));
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (find.text('磁盘文件已经改变').evaluate().isEmpty &&
           DateTime.now().isBefore(deadline)) {
@@ -415,12 +410,13 @@ void main() {
       ),
     );
     await ready(tester);
-    await tester.tap(find.byTooltip('保存'));
+    await tester.tap(find.byKey(const ValueKey('command-save')));
     await tester.pump();
     expect(find.textContaining('请先确认剩余'), findsOneWidget);
     expect(s.savedMerge, false);
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('关闭'));
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
     expect(find.text('有尚未保存的修改'), findsOneWidget);

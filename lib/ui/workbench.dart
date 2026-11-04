@@ -11,11 +11,11 @@ import 'package:window_manager/window_manager.dart';
 import '../core/access.dart';
 import '../core/git.dart';
 import '../core/files.dart';
-import '../core/diff.dart';
 import '../core/launch.dart';
 import '../core/merge.dart';
 import '../core/merge_labels.dart';
 import '../core/settings.dart';
+import '../core/shortcuts.dart';
 import '../session.dart';
 import '../palette.dart';
 import 'code_pane.dart';
@@ -62,6 +62,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       _saving = false,
       _opening = false,
       _staging = false,
+      _settingsOpen = false,
       _identifyingSource = false,
       _diskChanged = false;
   int _active = 1, _hunk = 0, _conflict = 0;
@@ -161,8 +162,11 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         next.left.text.isEmpty && next.right.text.isEmpty && !next.isMerge;
     _diskChanged = false;
     next.addListener(_changed);
-    next.showWhitespace = settings.showWhitespace;
-    next.updateResultLayout();
+    next.setShowWhitespace(settings.showWhitespace);
+    next.setContextOnly(
+      settings.contextOnly && !next.isMerge,
+      context: settings.contextLines,
+    );
     next.refresh(settings.comparison);
     settings.remember(
       next.left.path,
@@ -694,20 +698,22 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   }
 
   void _toggleWhitespace() {
-    settings.whitespace = settings.whitespace == WhitespaceMode.exact
-        ? WhitespaceMode.all
-        : WhitespaceMode.exact;
+    settings.ignoreWhitespace = !settings.ignoreWhitespace;
     session?.refresh(settings.comparison);
     _saveSettings();
   }
 
   void _toggleWhitespaceCharacters() {
-    final s = session;
-    if (s == null) return;
     settings.showWhitespace = !settings.showWhitespace;
-    s.showWhitespace = settings.showWhitespace;
-    s.updateResultLayout();
-    s.refresh(settings.comparison);
+    session?.setShowWhitespace(settings.showWhitespace);
+    _saveSettings();
+  }
+
+  void _toggleContext() {
+    final s = session;
+    if (s == null || s.isMerge || s.busy) return;
+    settings.contextOnly = !s.contextOnly;
+    s.setContextOnly(settings.contextOnly, context: settings.contextLines);
     _saveSettings();
   }
 
@@ -841,17 +847,161 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     }
   }
 
-  Future<void> _settings() async {
+  Future<void> _settings({
+    SettingsSection section = SettingsSection.comparison,
+  }) async {
+    if (_settingsOpen) return;
+    final beforeContext = settings.contextOnly,
+        beforeLines = settings.contextLines;
+    setState(() => _settingsOpen = true);
     await showDialog(
       context: context,
-      builder: (_) => SettingsDialog(settings: settings),
+      builder: (_) =>
+          SettingsDialog(settings: settings, initialSection: section),
     );
     if (!mounted) return;
-    setState(() {});
-    session?.showWhitespace = settings.showWhitespace;
-    session?.updateResultLayout();
-    session?.refresh(settings.comparison);
+    setState(() => _settingsOpen = false);
+    final s = session;
+    if (s != null) {
+      if (s.showWhitespace != settings.showWhitespace) {
+        s.setShowWhitespace(settings.showWhitespace);
+      }
+      if (beforeContext != settings.contextOnly ||
+          beforeLines != settings.contextLines) {
+        s.setContextOnly(
+          settings.contextOnly && !s.isMerge,
+          context: settings.contextLines,
+        );
+      }
+      if (s.options != settings.comparison) s.refresh(settings.comparison);
+    }
     _saveSettings();
+  }
+
+  SingleActivator? _menuShortcut(AppCommand command) =>
+      _settingsOpen ? null : settings.shortcuts[command]?.activator;
+
+  String _shortcutHint(String text, AppCommand command) {
+    final binding = settings.shortcuts[command];
+    return binding == null ? text : '$text · ${binding.label}';
+  }
+
+  bool _enabled(AppCommand command) {
+    final s = session;
+    return switch (command) {
+      AppCommand.open => !_opening && !_saving,
+      AppCommand.save ||
+      AppCommand.saveAs => s != null && !s.readOnly && !_saving,
+      AppCommand.reload =>
+        s?.left.path != null && s?.right.path != null && !_saving && !_opening,
+      AppCommand.nextDiff ||
+      AppCommand.previousDiff => s != null && !s.busy && s.hunkRows.isNotEmpty,
+      AppCommand.nextConflict || AppCommand.previousConflict =>
+        s?.isMerge == true && s!.merger!.state.regions.isNotEmpty,
+      AppCommand.swapSides =>
+        s != null && !s.isMerge && s.output == null && !s.busy && !_saving,
+      AppCommand.contextOnly => s != null && !s.isMerge && !s.busy,
+      AppCommand.takeLeft || AppCommand.takeRight =>
+        s != null &&
+            !s.isMerge &&
+            !s.readOnly &&
+            !s.busy &&
+            s.diff?.changes.isNotEmpty == true &&
+            (command != AppCommand.takeRight || _leftEditable),
+      AppCommand.toggleLeftEdit => s != null && !s.isMerge && !s.readOnly,
+      AppCommand.undo =>
+        !_activeReadOnly &&
+            (_active == 2 ? s!.merger!.canUndo : editor!.canUndo),
+      AppCommand.redo =>
+        !_activeReadOnly &&
+            (_active == 2 ? s!.merger!.canRedo : editor!.canRedo),
+      AppCommand.find ||
+      AppCommand.replace ||
+      AppCommand.goToLine ||
+      AppCommand.ignoreWhitespace ||
+      AppCommand.showWhitespace => s != null,
+      AppCommand.stage =>
+        s != null && !s.isMerge && !s.readOnly && !_staging && !_saving,
+      _ => true,
+    };
+  }
+
+  void _runCommand(AppCommand command) {
+    if (!_enabled(command) || ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
+    switch (command) {
+      case AppCommand.open:
+        _open();
+      case AppCommand.save:
+        _save();
+      case AppCommand.saveAs:
+        _save(saveAs: true);
+      case AppCommand.reload:
+        _reload();
+      case AppCommand.close:
+        _close();
+      case AppCommand.undo:
+        _undo();
+      case AppCommand.redo:
+        _redo();
+      case AppCommand.copy:
+        _editAction(
+          const CodeShortcutCopyIntent(),
+          text: CopySelectionTextIntent.copy,
+        );
+      case AppCommand.cut:
+        _editAction(
+          const CodeShortcutCutIntent(),
+          text: const CopySelectionTextIntent.cut(
+            SelectionChangedCause.keyboard,
+          ),
+        );
+      case AppCommand.paste:
+        _editAction(
+          const CodeShortcutPasteIntent(),
+          text: const PasteTextIntent(SelectionChangedCause.keyboard),
+        );
+      case AppCommand.selectAll:
+        _editAction(
+          const CodeShortcutSelectAllIntent(),
+          text: const SelectAllTextIntent(SelectionChangedCause.keyboard),
+        );
+      case AppCommand.find:
+        finder?.findMode();
+      case AppCommand.replace:
+        finder?.replaceMode();
+      case AppCommand.goToLine:
+        _goToLine();
+      case AppCommand.nextDiff:
+        _navigate(1);
+      case AppCommand.previousDiff:
+        _navigate(-1);
+      case AppCommand.nextConflict:
+        _navigate(1, conflicts: true);
+      case AppCommand.previousConflict:
+        _navigate(-1, conflicts: true);
+      case AppCommand.swapSides:
+        _swapSides();
+      case AppCommand.takeLeft:
+        session!.applyHunk(_hunk);
+      case AppCommand.takeRight:
+        session!.applyHunk(_hunk, toRight: false);
+      case AppCommand.toggleLeftEdit:
+        setState(() => _leftEditable = !_leftEditable);
+      case AppCommand.ignoreWhitespace:
+        _toggleWhitespace();
+      case AppCommand.contextOnly:
+        _toggleContext();
+      case AppCommand.showWhitespace:
+        _toggleWhitespaceCharacters();
+      case AppCommand.stage:
+        _stageSelection(_active == 0 ? 0 : 1);
+      case AppCommand.settings:
+        _settings();
+      case AppCommand.gitSettings:
+        _settings(section: SettingsSection.git);
+    }
   }
 
   Future<void> _goToLine() async {
@@ -901,36 +1051,9 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   Widget build(BuildContext context) {
     Widget body = CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyO, meta: true): () =>
-            _open(),
-        const SingleActivator(LogicalKeyboardKey.keyO, control: true): () =>
-            _open(),
-        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
-            _save(),
-        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
-            _save(),
-        const SingleActivator(
-          LogicalKeyboardKey.keyS,
-          meta: true,
-          shift: true,
-        ): () =>
-            _save(saveAs: true),
-        const SingleActivator(
-          LogicalKeyboardKey.keyS,
-          control: true,
-          shift: true,
-        ): () =>
-            _save(saveAs: true),
-        const SingleActivator(LogicalKeyboardKey.keyG, meta: true): _goToLine,
-        const SingleActivator(LogicalKeyboardKey.keyG, control: true):
-            _goToLine,
-        const SingleActivator(LogicalKeyboardKey.f7): () => _navigate(1),
-        const SingleActivator(LogicalKeyboardKey.f7, shift: true): () =>
-            _navigate(-1),
-        const SingleActivator(LogicalKeyboardKey.f8): () =>
-            _navigate(1, conflicts: true),
-        const SingleActivator(LogicalKeyboardKey.f8, shift: true): () =>
-            _navigate(-1, conflicts: true),
+        for (final command in AppCommand.values)
+          if (settings.shortcuts[command] case final KeyBinding binding)
+            binding.activator: () => _runCommand(command),
       },
       child: Focus(
         autofocus: session == null,
@@ -963,11 +1086,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               PlatformMenuItem(label: '关于 fmerge', onSelected: _about),
               PlatformMenuItem(
                 label: '设置…',
-                onSelected: _settings,
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.comma,
-                  meta: true,
-                ),
+                onSelected: _settingsOpen ? null : _settings,
+                shortcut: _menuShortcut(AppCommand.settings),
               ),
               PlatformMenuItem(
                 label: '退出 fmerge',
@@ -984,36 +1104,23 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             menus: [
               PlatformMenuItem(
                 label: '打开比较…',
-                onSelected: () => _open(),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyO,
-                  meta: true,
-                ),
+                onSelected: _settingsOpen ? null : () => _open(),
+                shortcut: _menuShortcut(AppCommand.open),
               ),
               PlatformMenuItem(
                 label: '保存',
                 onSelected: () => _save(),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyS,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.save),
               ),
               PlatformMenuItem(
                 label: '另存为…',
                 onSelected: () => _save(saveAs: true),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyS,
-                  meta: true,
-                  shift: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.saveAs),
               ),
               PlatformMenuItem(
                 label: '关闭',
                 onSelected: _close,
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyW,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.close),
               ),
             ],
           ),
@@ -1026,10 +1133,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   const CodeShortcutUndoIntent(),
                   text: const UndoTextIntent(SelectionChangedCause.keyboard),
                 ),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyZ,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.undo),
               ),
               PlatformMenuItem(
                 label: '重做',
@@ -1037,11 +1141,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   const CodeShortcutRedoIntent(),
                   text: const RedoTextIntent(SelectionChangedCause.keyboard),
                 ),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyZ,
-                  meta: true,
-                  shift: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.redo),
               ),
               PlatformMenuItem(
                 label: '复制',
@@ -1049,10 +1149,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   const CodeShortcutCopyIntent(),
                   text: CopySelectionTextIntent.copy,
                 ),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyC,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.copy),
               ),
               PlatformMenuItem(
                 label: '剪切',
@@ -1062,10 +1159,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                     SelectionChangedCause.keyboard,
                   ),
                 ),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyX,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.cut),
               ),
               PlatformMenuItem(
                 label: '粘贴',
@@ -1073,10 +1167,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   const CodeShortcutPasteIntent(),
                   text: const PasteTextIntent(SelectionChangedCause.keyboard),
                 ),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyV,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.paste),
               ),
               PlatformMenuItem(
                 label: '全选',
@@ -1086,18 +1177,12 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                     SelectionChangedCause.keyboard,
                   ),
                 ),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyA,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.selectAll),
               ),
               PlatformMenuItem(
                 label: '查找…',
                 onSelected: () => _editAction(const CodeShortcutFindIntent()),
-                shortcut: const SingleActivator(
-                  LogicalKeyboardKey.keyF,
-                  meta: true,
-                ),
+                shortcut: _menuShortcut(AppCommand.find),
               ),
             ],
           ),
@@ -1108,56 +1193,61 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     return body;
   }
 
-  Widget _tool(
+  Widget _commandTool(
+    AppCommand command,
     IconData icon,
-    String label,
-    String tooltip,
-    VoidCallback? action, {
+    String label, {
     bool selected = false,
+    String? title,
   }) => ToolbarAction(
+    key: ValueKey('command-${command.name}'),
     icon: icon,
     label: label,
-    tooltip: tooltip,
-    onPressed: action,
+    tooltip: _shortcutHint(title ?? command.label, command),
+    onPressed: _enabled(command) ? () => _runCommand(command) : null,
     showLabel: settings.toolbarLabels,
     selected: selected,
   );
 
-  Widget _menuFace(IconData icon, String label) => SizedBox(
-    width: settings.toolbarLabels ? 58 : 34,
-    height: settings.toolbarLabels ? 58 : 34,
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, size: 19, color: muted),
-        if (settings.toolbarLabels) ...[
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: muted, fontSize: 10)),
-        ],
-      ],
-    ),
+  Widget _menuLabel(String text, AppCommand command) => Row(
+    children: [
+      Expanded(child: Text(text)),
+      const SizedBox(width: 20),
+      Text(
+        settings.shortcuts[command]?.label ?? '',
+        style: const TextStyle(fontSize: 10, color: muted),
+      ),
+    ],
   );
+
+  void _toggleRule(String value) {
+    switch (value) {
+      case 'case':
+        settings.ignoreCase = !settings.ignoreCase;
+      case 'eol':
+        settings.ignoreEol = !settings.ignoreEol;
+      case 'highlight':
+        settings.highlight = !settings.highlight;
+    }
+    setState(() {});
+    if (value != 'highlight') session?.refresh(settings.comparison);
+    _saveSettings();
+  }
 
   Widget _moreMenu() {
     final s = session;
-    final canApply =
-        s != null &&
-        !s.isMerge &&
-        !s.readOnly &&
-        !s.busy &&
-        s.diff?.changes.isNotEmpty == true;
+    final canApply = _enabled(AppCommand.takeLeft);
     return PopupMenuButton<String>(
       tooltip: '更多操作',
+      constraints: const BoxConstraints(minWidth: 290, maxWidth: 430),
       onSelected: (value) {
         switch (value) {
           case 'as':
-            _save(saveAs: true);
+            _runCommand(AppCommand.saveAs);
           case 'reload':
-            _reload();
+            _runCommand(AppCommand.reload);
           case 'goto':
-            _goToLine();
-          case 'swap':
-            _swapSides();
+            _runCommand(AppCommand.goToLine);
           case 'both-left':
             s!.applyHunk(_hunk, combine: 1);
           case 'both-right':
@@ -1165,232 +1255,254 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           case 'labels':
             setState(() => settings.toolbarLabels = !settings.toolbarLabels);
             _saveSettings();
+          case 'whitespace':
+            _runCommand(AppCommand.showWhitespace);
+          case 'case' || 'eol' || 'highlight':
+            _toggleRule(value);
+          case 'git':
+            _runCommand(AppCommand.gitSettings);
           case 'about':
             _about();
           case 'close':
-            _close();
+            _runCommand(AppCommand.close);
         }
       },
       itemBuilder: (_) => [
         PopupMenuItem(
+          height: 40,
           value: 'as',
-          enabled: s != null && !s.readOnly && !_saving,
-          child: const Text('另存为…'),
+          enabled: _enabled(AppCommand.saveAs),
+          child: _menuLabel('另存为…', AppCommand.saveAs),
         ),
         PopupMenuItem(
+          height: 40,
           value: 'reload',
-          enabled: s?.left.path != null && s?.right.path != null && !_saving,
-          child: const Text('从磁盘重新加载'),
+          enabled: _enabled(AppCommand.reload),
+          child: _menuLabel('从磁盘重新加载', AppCommand.reload),
         ),
         PopupMenuItem(
+          height: 40,
           value: 'goto',
           enabled: s != null,
-          child: const Text('跳转到行…'),
+          child: _menuLabel('跳转到行…', AppCommand.goToLine),
         ),
         if (s != null && !s.isMerge) ...[
-          const PopupMenuDivider(),
+          const PopupMenuDivider(height: 12),
           PopupMenuItem(
-            value: 'swap',
-            enabled: s.output == null && !s.busy && !_saving,
-            child: const Text('交换左右文件'),
-          ),
-          PopupMenuItem(
+            height: 40,
             value: 'both-left',
             enabled: canApply,
             child: const Text('组合：左侧在前，右侧在后'),
           ),
           PopupMenuItem(
+            height: 40,
             value: 'both-right',
             enabled: canApply,
             child: const Text('组合：右侧在前，左侧在后'),
           ),
         ],
-        const PopupMenuDivider(),
+        const PopupMenuDivider(height: 12),
         CheckedPopupMenuItem(
+          height: 40,
+          value: 'case',
+          checked: settings.ignoreCase,
+          child: const Text('忽略大小写'),
+        ),
+        CheckedPopupMenuItem(
+          height: 40,
+          value: 'eol',
+          checked: settings.ignoreEol,
+          child: const Text('忽略换行符差异'),
+        ),
+        CheckedPopupMenuItem(
+          height: 40,
+          value: 'whitespace',
+          checked: settings.showWhitespace,
+          child: const Text('显示空白字符'),
+        ),
+        CheckedPopupMenuItem(
+          height: 40,
+          value: 'highlight',
+          checked: settings.highlight,
+          child: const Text('语法高亮'),
+        ),
+        CheckedPopupMenuItem(
+          height: 40,
           value: 'labels',
           checked: settings.toolbarLabels,
           child: const Text('显示工具栏文字'),
         ),
-        const PopupMenuItem(value: 'about', child: Text('关于 / Git 配置')),
-        const PopupMenuItem(value: 'close', child: Text('关闭')),
-      ],
-      child: _menuFace(Icons.more_horiz, '更多'),
-    );
-  }
-
-  Widget _viewOptions() {
-    final s = session!;
-    return PopupMenuButton<String>(
-      tooltip: '显示与比较选项',
-      onSelected: (value) {
-        switch (value) {
-          case 'whitespace':
-            _toggleWhitespaceCharacters();
-          case 'ignore':
-            _toggleWhitespace();
-          case 'context':
-            s.setContextOnly(!s.contextOnly);
-        }
-      },
-      itemBuilder: (_) => [
-        CheckedPopupMenuItem(
-          value: 'whitespace',
-          checked: s.showWhitespace,
-          child: const Text('显示空白字符'),
+        const PopupMenuDivider(height: 12),
+        PopupMenuItem(
+          height: 40,
+          value: 'git',
+          child: _menuLabel('Git 集成…', AppCommand.gitSettings),
         ),
-        CheckedPopupMenuItem(
-          value: 'ignore',
-          checked: settings.whitespace != WhitespaceMode.exact,
-          child: const Text('忽略空白差异'),
+        const PopupMenuItem(
+          height: 40,
+          value: 'about',
+          child: Text('关于 fmerge'),
         ),
-        if (!s.isMerge)
-          CheckedPopupMenuItem(
-            value: 'context',
-            checked: s.contextOnly,
-            enabled: !s.busy,
-            child: const Text('仅显示差异及前后 3 行'),
-          ),
+        PopupMenuItem(
+          height: 40,
+          value: 'close',
+          child: _menuLabel('关闭', AppCommand.close),
+        ),
       ],
-      child: _menuFace(Icons.display_settings, '显示'),
+      child: SizedBox(
+        width: settings.toolbarLabels ? 50 : 34,
+        height: settings.toolbarLabels ? 58 : 34,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.more_horiz, size: 19, color: muted),
+            if (settings.toolbarLabels) ...[
+              const SizedBox(height: 4),
+              const Text('更多', style: TextStyle(color: muted, fontSize: 10)),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
   Widget _toolbar() {
     final s = session;
-    final canNavigate = s != null && !s.busy && s.hunkRows.isNotEmpty;
-    final canApply =
-        s != null &&
-        !s.readOnly &&
-        !s.busy &&
-        s.diff?.changes.isNotEmpty == true;
     Widget divider() =>
-        const VerticalDivider(width: 14, indent: 10, endIndent: 10);
+        const VerticalDivider(width: 10, indent: 10, endIndent: 10);
     return Container(
       height: settings.toolbarLabels ? 66 : 44,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: const BoxDecoration(
         color: bg,
         border: Border(bottom: BorderSide(color: border)),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) => Scrollbar(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: IntrinsicWidth(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: Row(
-                  children: [
-                    _tool(
-                      Icons.folder_open,
-                      '打开',
-                      '打开比较',
-                      _opening || _saving ? null : () => _open(),
+      child: Row(
+        children: [
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Scrollbar(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: IntrinsicWidth(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
+                      ),
+                      child: Row(
+                        children: [
+                          _commandTool(
+                            AppCommand.open,
+                            Icons.folder_open,
+                            '打开',
+                          ),
+                          _commandTool(
+                            AppCommand.save,
+                            _saving
+                                ? Icons.hourglass_empty
+                                : Icons.save_outlined,
+                            '保存',
+                          ),
+                          if (s != null) ...[
+                            divider(),
+                            _commandTool(AppCommand.undo, Icons.undo, '撤销'),
+                            _commandTool(AppCommand.redo, Icons.redo, '重做'),
+                            _commandTool(
+                              AppCommand.find,
+                              Icons.search,
+                              '查找',
+                              title: '查找 / 替换',
+                            ),
+                            divider(),
+                            _commandTool(
+                              AppCommand.previousDiff,
+                              Icons.keyboard_arrow_up,
+                              '上一处',
+                            ),
+                            Text(
+                              s.error != null
+                                  ? '比较失败'
+                                  : s.busy || s.diff == null
+                                  ? '正在比较…'
+                                  : s.hunkRows.isEmpty
+                                  ? '文件相同'
+                                  : '${_hunk + 1} / ${s.hunkRows.length} 处差异',
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 11,
+                              ),
+                            ),
+                            _commandTool(
+                              AppCommand.nextDiff,
+                              Icons.keyboard_arrow_down,
+                              '下一处',
+                            ),
+                            if (!s.isMerge) ...[
+                              divider(),
+                              _commandTool(
+                                AppCommand.takeLeft,
+                                Icons.arrow_forward,
+                                '采用左侧',
+                              ),
+                              _commandTool(
+                                AppCommand.takeRight,
+                                Icons.arrow_back,
+                                '采用右侧',
+                              ),
+                              _commandTool(
+                                AppCommand.toggleLeftEdit,
+                                _leftEditable
+                                    ? Icons.lock_open
+                                    : Icons.lock_outline,
+                                '左侧编辑',
+                                selected: _leftEditable,
+                                title: _leftEditable ? '锁定左侧编辑' : '启用左侧编辑',
+                              ),
+                              divider(),
+                              _commandTool(
+                                AppCommand.swapSides,
+                                Icons.swap_horiz,
+                                '交换左右',
+                              ),
+                            ],
+                            _commandTool(
+                              AppCommand.ignoreWhitespace,
+                              Icons.format_clear,
+                              '忽略空白',
+                              selected: settings.ignoreWhitespace,
+                            ),
+                            if (!s.isMerge)
+                              _commandTool(
+                                AppCommand.contextOnly,
+                                s.contextOnly
+                                    ? Icons.unfold_more
+                                    : Icons.unfold_less,
+                                '只看差异',
+                                selected: s.contextOnly,
+                                title: '仅显示差异及前后 ${settings.contextLines} 行',
+                              ),
+                            const Spacer(),
+                            if (s.isMerge)
+                              _tag(
+                                s.pending > 0
+                                    ? '${s.pending} 处冲突待确认'
+                                    : '全部冲突已处理',
+                                s.pending > 0 ? amber : green,
+                              ),
+                          ] else
+                            const Spacer(),
+                        ],
+                      ),
                     ),
-                    _tool(
-                      _saving ? Icons.hourglass_empty : Icons.save_outlined,
-                      '保存',
-                      '保存',
-                      s == null || s.readOnly || _saving ? null : () => _save(),
-                    ),
-                    _tool(Icons.tune, '设置', '设置', _settings),
-                    if (s != null) ...[
-                      divider(),
-                      _tool(
-                        Icons.undo,
-                        '撤销',
-                        '撤销',
-                        _activeReadOnly ||
-                                !(_active == 2
-                                    ? s.merger!.canUndo
-                                    : editor!.canUndo)
-                            ? null
-                            : _undo,
-                      ),
-                      _tool(
-                        Icons.redo,
-                        '重做',
-                        '重做',
-                        _activeReadOnly ||
-                                !(_active == 2
-                                    ? s.merger!.canRedo
-                                    : editor!.canRedo)
-                            ? null
-                            : _redo,
-                      ),
-                      _tool(
-                        Icons.search,
-                        '查找',
-                        '查找 / 替换',
-                        () => finder?.findMode(),
-                      ),
-                      divider(),
-                      _tool(
-                        Icons.keyboard_arrow_up,
-                        '上一处',
-                        '上一处差异 · Shift F7',
-                        canNavigate ? () => _navigate(-1) : null,
-                      ),
-                      Text(
-                        s.error != null
-                            ? '比较失败'
-                            : s.busy || s.diff == null
-                            ? '正在比较…'
-                            : s.hunkRows.isEmpty
-                            ? '文件相同'
-                            : '${_hunk + 1} / ${s.hunkRows.length} 处差异',
-                        style: const TextStyle(color: muted, fontSize: 11),
-                      ),
-                      _tool(
-                        Icons.keyboard_arrow_down,
-                        '下一处',
-                        '下一处差异 · F7',
-                        canNavigate ? () => _navigate(1) : null,
-                      ),
-                      if (!s.isMerge) ...[
-                        divider(),
-                        _tool(
-                          Icons.arrow_forward,
-                          '采用左侧',
-                          '使用左侧差异块',
-                          canApply ? () => s.applyHunk(_hunk) : null,
-                        ),
-                        _tool(
-                          Icons.arrow_back,
-                          '采用右侧',
-                          '使用右侧差异块',
-                          canApply && _leftEditable
-                              ? () => s.applyHunk(_hunk, toRight: false)
-                              : null,
-                        ),
-                        _tool(
-                          _leftEditable ? Icons.lock_open : Icons.lock_outline,
-                          '左侧编辑',
-                          _leftEditable ? '锁定左侧编辑' : '启用左侧编辑',
-                          s.readOnly
-                              ? null
-                              : () => setState(
-                                  () => _leftEditable = !_leftEditable,
-                                ),
-                          selected: _leftEditable,
-                        ),
-                      ],
-                      const Spacer(),
-                      if (s.isMerge)
-                        _tag(
-                          s.pending > 0 ? '${s.pending} 处冲突待确认' : '全部冲突已处理',
-                          s.pending > 0 ? amber : green,
-                        ),
-                      _viewOptions(),
-                    ] else
-                      const Spacer(),
-                    _moreMenu(),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+          divider(),
+          _moreMenu(),
+          _commandTool(AppCommand.settings, Icons.tune, '设置'),
+        ],
       ),
     );
   }
@@ -1879,8 +1991,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               ),
             ),
           const SizedBox(width: 12),
-          const Text(
-            'F7 差异 · F8 冲突 · ⌘/Ctrl S 保存',
+          Text(
+            '${settings.shortcuts[AppCommand.nextDiff]?.label ?? "未设置"} 差异 · ${settings.shortcuts[AppCommand.nextConflict]?.label ?? "未设置"} 冲突 · ${settings.shortcuts[AppCommand.save]?.label ?? "未设置"} 保存',
             style: TextStyle(fontSize: 11, color: muted),
           ),
         ],
@@ -1918,32 +2030,14 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           ],
         ),
       );
-  void _about() => showDialog(
+  void _about() => showAboutDialog(
     context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('fmerge · 关于 / Git 配置'),
-      content: SizedBox(
-        width: 700,
-        child: SingleChildScrollView(
-          child: SelectableText(
-            '原生桌面文本比较与三方合并 · 0.1.0\n\n'
-            '打开按钮直接选择两个文件。三方合并由 Git 或命令行传入共同祖先、左右输入与输出路径。\n\n'
-            '以下命令使用当前可执行文件路径，仅供复制，不会自动更改 Git 配置：\n\n'
-            '${LaunchOptions.gitConfiguration(Platform.resolvedExecutable)}\n\n'
-            '命令行：fmerge LEFT RIGHT\n'
-            'fmerge --base BASE --local LOCAL --remote REMOTE --output MERGED\n\n'
-            'F7 差异 · F8 冲突 · ⌘/Ctrl F 查找 · ⌘/Ctrl G 跳转 · ⌘/Ctrl S 保存\n\n'
-            'Diff 核心基于 MIT 许可的 VS Code Myers 算法。',
-            style: const TextStyle(fontSize: 12),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
-        ),
-      ],
-    ),
+    applicationName: 'fmerge',
+    applicationVersion: '0.1.0',
+    applicationLegalese: '原生桌面文本比较与三方合并',
+    children: const [
+      SizedBox(height: 16),
+      Text('Git 外部工具配置位于“设置 → Git 集成”。\n\nDiff 核心基于 MIT 许可的 VS Code Myers 算法。'),
+    ],
   );
 }

@@ -2,11 +2,20 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'diff.dart';
+import 'shortcuts.dart';
 
 class Settings {
-  Settings({this.persist = true});
+  Settings({this.persist = true, this.storageDirectory});
   final bool persist;
+  final String? storageDirectory;
+  Future<void> _saveTail = Future<void>.value();
   double fontSize = 13;
+  int contextLines = 3;
+  bool contextOnly = false;
+  final shortcuts = ShortcutPreferences();
+  bool get ignoreWhitespace => whitespace != WhitespaceMode.exact;
+  set ignoreWhitespace(bool value) =>
+      whitespace = value ? WhitespaceMode.edges : WhitespaceMode.exact;
   bool highlight = true,
       toolbarLabels = true,
       backup = true,
@@ -29,25 +38,14 @@ class Settings {
         : '${Platform.environment['XDG_CONFIG_HOME'] ?? '$home/.config'}/fmerge';
   }
 
-  static Future<Settings> load() async {
-    final settings = Settings();
-    final file = File('$directory/settings.json');
+  static Future<Settings> load({String? storageDirectory}) async {
+    final settings = Settings(storageDirectory: storageDirectory);
+    final file = File('${storageDirectory ?? directory}/settings.json');
     if (!await file.exists()) return settings;
     try {
       final json =
           jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      settings.fontSize = (json['fontSize'] as num? ?? 13).toDouble().clamp(
-        10,
-        24,
-      );
-      settings.highlight = json['highlight'] as bool? ?? true;
-      settings.toolbarLabels = json['toolbarLabels'] as bool? ?? true;
-      settings.backup = json['backup'] as bool? ?? true;
-      settings.showWhitespace = json['showWhitespace'] as bool? ?? false;
-      settings.ignoreCase = json['ignoreCase'] as bool? ?? false;
-      settings.ignoreEol = json['ignoreEol'] as bool? ?? true;
-      settings.whitespace =
-          WhitespaceMode.values[(json['whitespace'] as int? ?? 0).clamp(0, 2)];
+      settings.readPreferences(json);
       for (final r in (json['recent'] as List? ?? []).take(12)) {
         if (r is Map) settings.recent.add(Map<String, dynamic>.from(r));
       }
@@ -59,25 +57,61 @@ class Settings {
     return settings;
   }
 
-  Future<void> save() async {
-    if (!persist) return;
-    await Directory(directory).create(recursive: true);
-    final file = File('$directory/settings.json');
-    final temp = File('${file.path}.$pid.tmp');
-    await temp.writeAsString(
-      jsonEncode({
-        'fontSize': fontSize,
-        'highlight': highlight,
-        'toolbarLabels': toolbarLabels,
-        'backup': backup,
-        'showWhitespace': showWhitespace,
-        'ignoreCase': ignoreCase,
-        'ignoreEol': ignoreEol,
-        'whitespace': whitespace.index,
-        'recent': recent,
-      }),
-      flush: true,
+  void readPreferences(Map<String, dynamic> json) {
+    double number(String name, double fallback) =>
+        json[name] is num ? (json[name] as num).toDouble() : fallback;
+    bool flag(String name, bool fallback) =>
+        json[name] is bool ? json[name] as bool : fallback;
+    fontSize = number('fontSize', 13).clamp(10, 24);
+    contextLines = number('contextLines', 3).clamp(0, 1000).toInt();
+    contextOnly = flag('contextOnly', false);
+    highlight = flag('highlight', true);
+    toolbarLabels = flag('toolbarLabels', true);
+    backup = flag('backup', true);
+    showWhitespace = flag('showWhitespace', false);
+    ignoreCase = flag('ignoreCase', false);
+    ignoreEol = flag('ignoreEol', true);
+    final legacy = json['whitespace'];
+    ignoreWhitespace = flag(
+      'ignoreWhitespace',
+      legacy is int && legacy > 0 && legacy < WhitespaceMode.values.length,
     );
+    shortcuts.load(json['shortcuts']);
+  }
+
+  Map<String, dynamic> preferencesJson() => {
+    'fontSize': fontSize,
+    'contextLines': contextLines,
+    'contextOnly': contextOnly,
+    'highlight': highlight,
+    'toolbarLabels': toolbarLabels,
+    'backup': backup,
+    'showWhitespace': showWhitespace,
+    'ignoreCase': ignoreCase,
+    'ignoreEol': ignoreEol,
+    'ignoreWhitespace': ignoreWhitespace,
+    'whitespace': whitespace.index,
+    'shortcuts': shortcuts.toJson(),
+  };
+
+  Future<void> save() {
+    if (!persist) return Future<void>.value();
+    final contents = jsonEncode({...preferencesJson(), 'recent': recent});
+    // 快速连续切换时按调用顺序保存快照，避免共用临时文件相互覆盖或 rename 失败。
+    final next = _saveTail.then(
+      (_) => _write(contents),
+      onError: (Object _, StackTrace _) => _write(contents),
+    );
+    _saveTail = next;
+    return next;
+  }
+
+  Future<void> _write(String contents) async {
+    final folder = storageDirectory ?? directory;
+    await Directory(folder).create(recursive: true);
+    final file = File('$folder/settings.json');
+    final temp = File('${file.path}.$pid.tmp');
+    await temp.writeAsString(contents, flush: true);
     await temp.rename(file.path);
   }
 

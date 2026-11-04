@@ -11,7 +11,7 @@ class _CodeShortcuts extends StatefulWidget {
 }
 
 class _CodeShortcutsState extends State<_CodeShortcuts> {
-  late final Map<ShortcutActivator, Intent> _shortcuts;
+  late Map<ShortcutActivator, Intent> _shortcuts;
 
   @override
   void initState() {
@@ -34,7 +34,8 @@ class _CodeShortcutsState extends State<_CodeShortcuts> {
   }
 
   void _buildShortcuts() {
-    _shortcuts.clear();
+    // 使用新映射通知 ShortcutManager 清理键位索引，避免重绑定后旧键仍生效。
+    _shortcuts = {};
     for (final CodeShortcutType type in CodeShortcutType.values) {
       if (type == CodeShortcutType.backspace) {
         if (kIsAndroid || kIsIOS) {
