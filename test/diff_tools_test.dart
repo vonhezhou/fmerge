@@ -14,6 +14,8 @@ import 'package:fmerge/ui/diff_overview.dart';
 import 'package:fmerge/ui/document_status.dart';
 import 'package:fmerge/ui/line_details.dart';
 
+import 'support/menus.dart';
+
 CompareSession session(String left, String right, {String? base}) =>
     CompareSession(
       TextFile.empty(left),
@@ -119,7 +121,7 @@ void main() {
       FmergeApp(settings: Settings(persist: false), initial: s),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('command-nextInlineDiff')));
+    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '更多操作');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selection.startIndex, 1);
     expect(s.rightEditor.selectedText, 'NEW');
@@ -127,11 +129,11 @@ void main() {
       tester.widget<LineDetails>(find.byType(LineDetails)).row!.left,
       'a OLD b OLD2',
     );
-    await tester.tap(find.byKey(const ValueKey('command-nextInlineDiff')));
+    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '更多操作');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selectedText, 'NEW');
     expect(s.rightEditor.selection.startOffset, greaterThan(6));
-    await tester.tap(find.byKey(const ValueKey('command-previousInlineDiff')));
+    await chooseMenuCommand(tester, 'previousInlineDiff', menu: '更多操作');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selection.startOffset, 2);
     String? copied;
@@ -144,7 +146,7 @@ void main() {
         return null;
       },
     );
-    await tester.tap(find.byKey(const ValueKey('command-copy')));
+    await chooseMenuCommand(tester, 'copy', menu: '更多操作');
     await tester.pumpAndSettle();
     expect(copied, 'NEW');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -157,11 +159,15 @@ void main() {
         .focus
         .requestFocus();
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TextButton>(find.byKey(const ValueKey('command-paste')))
-          .onPressed,
-      isNull,
+          .widget<PopupMenuItem<String>>(
+            find.byKey(const ValueKey('command-paste')),
+          )
+          .enabled,
+      false,
     );
     expect(tester.takeException(), isNull);
   });
@@ -193,8 +199,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(panes.first.scroll.verticalScroller.offset, lessThan(2000));
-    await tester.tap(find.byKey(const ValueKey('command-toggleOverview')));
-    await tester.tap(find.byKey(const ValueKey('command-toggleLineDetails')));
+    await chooseMenuCommand(tester, 'toggleOverview');
+    await chooseMenuCommand(tester, 'toggleLineDetails');
     await tester.pumpAndSettle();
     expect(find.byType(DiffOverview), findsNothing);
     expect(find.byType(LineDetails), findsNothing);

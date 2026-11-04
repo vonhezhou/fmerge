@@ -1320,6 +1320,105 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     _saveSettings();
   }
 
+  Widget _menuFace(IconData icon, String label) => SizedBox(
+    width: settings.toolbarLabels ? 50 : 34,
+    height: settings.toolbarLabels ? 58 : 34,
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 19, color: muted),
+        if (settings.toolbarLabels) ...[
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(color: muted, fontSize: 10)),
+        ],
+      ],
+    ),
+  );
+
+  Widget _viewMenu() {
+    CheckedPopupMenuItem<String> command(
+      AppCommand command,
+      String label,
+      bool checked,
+    ) => CheckedPopupMenuItem(
+      key: ValueKey('command-${command.name}'),
+      height: 36,
+      value: command.name,
+      enabled: _enabled(command),
+      checked: checked,
+      child: _menuLabel(label, command),
+    );
+    return PopupMenuButton<String>(
+      key: const ValueKey('view-menu'),
+      tooltip: '视图',
+      constraints: const BoxConstraints(minWidth: 300, maxWidth: 430),
+      onSelected: (value) {
+        switch (value) {
+          case 'labels':
+            setState(() => settings.toolbarLabels = !settings.toolbarLabels);
+            _saveSettings();
+          case 'case' || 'eol' || 'highlight':
+            _toggleRule(value);
+          default:
+            _runCommand(AppCommand.values.byName(value));
+        }
+      },
+      itemBuilder: (_) => [
+        command(AppCommand.toggleOverview, '差异概览条', settings.showOverview),
+        command(
+          AppCommand.toggleLineDetails,
+          '底部行详情',
+          settings.showLineDetails,
+        ),
+        command(AppCommand.toggleWordWrap, '长行自动换行', settings.wordWrap),
+        command(
+          AppCommand.contextOnly,
+          '仅显示差异及附近行',
+          session?.contextOnly ?? settings.contextOnly,
+        ),
+        const PopupMenuDivider(height: 8),
+        command(
+          AppCommand.toggleWordDiff,
+          '按单词显示行内差异',
+          settings.inlineMode == InlineDiffMode.words,
+        ),
+        command(AppCommand.toggleMovedBlocks, '识别移动代码块', settings.detectMoves),
+        command(
+          AppCommand.ignoreWhitespace,
+          '忽略行首、行尾空白',
+          settings.ignoreWhitespace,
+        ),
+        CheckedPopupMenuItem(
+          height: 36,
+          value: 'case',
+          checked: settings.ignoreCase,
+          child: const Text('忽略大小写'),
+        ),
+        CheckedPopupMenuItem(
+          height: 36,
+          value: 'eol',
+          checked: settings.ignoreEol,
+          child: const Text('忽略换行符差异'),
+        ),
+        const PopupMenuDivider(height: 8),
+        command(AppCommand.showWhitespace, '显示空白字符', settings.showWhitespace),
+        CheckedPopupMenuItem(
+          height: 36,
+          value: 'highlight',
+          checked: settings.highlight,
+          child: const Text('语法高亮'),
+        ),
+        CheckedPopupMenuItem(
+          height: 36,
+          value: 'labels',
+          checked: settings.toolbarLabels,
+          child: const Text('显示工具栏文字'),
+        ),
+      ],
+      child: _menuFace(Icons.visibility_outlined, '视图'),
+    );
+  }
+
   Widget _moreMenu() {
     final s = session;
     final canApply = _enabled(AppCommand.takeLeft);
@@ -1328,6 +1427,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       constraints: const BoxConstraints(minWidth: 290, maxWidth: 430),
       onSelected: (value) {
         switch (value) {
+          case 'copy' || 'paste' || 'previousInlineDiff' || 'nextInlineDiff':
+            _runEditorCommand(AppCommand.values.byName(value));
           case 'as':
             _runCommand(AppCommand.saveAs);
           case 'reload':
@@ -1338,13 +1439,6 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             s!.applyHunk(_hunk, combine: 1);
           case 'both-right':
             s!.applyHunk(_hunk, combine: 2);
-          case 'labels':
-            setState(() => settings.toolbarLabels = !settings.toolbarLabels);
-            _saveSettings();
-          case 'whitespace':
-            _runCommand(AppCommand.showWhitespace);
-          case 'case' || 'eol' || 'highlight':
-            _toggleRule(value);
           case 'git':
             _runCommand(AppCommand.gitSettings);
           case 'about':
@@ -1369,9 +1463,23 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         PopupMenuItem(
           height: 40,
           value: 'goto',
+          key: const ValueKey('command-goToLine'),
           enabled: s != null,
           child: _menuLabel('跳转到行…', AppCommand.goToLine),
         ),
+        for (final command in [
+          AppCommand.copy,
+          AppCommand.paste,
+          AppCommand.previousInlineDiff,
+          AppCommand.nextInlineDiff,
+        ])
+          PopupMenuItem(
+            key: ValueKey('command-${command.name}'),
+            height: 40,
+            value: command.name,
+            enabled: _editorCommandEnabled(command),
+            child: _menuLabel(command.label, command),
+          ),
         if (s != null && !s.isMerge) ...[
           const PopupMenuDivider(height: 12),
           PopupMenuItem(
@@ -1387,37 +1495,6 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             child: const Text('组合：右侧在前，左侧在后'),
           ),
         ],
-        const PopupMenuDivider(height: 12),
-        CheckedPopupMenuItem(
-          height: 40,
-          value: 'case',
-          checked: settings.ignoreCase,
-          child: const Text('忽略大小写'),
-        ),
-        CheckedPopupMenuItem(
-          height: 40,
-          value: 'eol',
-          checked: settings.ignoreEol,
-          child: const Text('忽略换行符差异'),
-        ),
-        CheckedPopupMenuItem(
-          height: 40,
-          value: 'whitespace',
-          checked: settings.showWhitespace,
-          child: const Text('显示空白字符'),
-        ),
-        CheckedPopupMenuItem(
-          height: 40,
-          value: 'highlight',
-          checked: settings.highlight,
-          child: const Text('语法高亮'),
-        ),
-        CheckedPopupMenuItem(
-          height: 40,
-          value: 'labels',
-          checked: settings.toolbarLabels,
-          child: const Text('显示工具栏文字'),
-        ),
         const PopupMenuDivider(height: 12),
         PopupMenuItem(
           height: 40,
@@ -1435,38 +1512,20 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           child: _menuLabel('关闭', AppCommand.close),
         ),
       ],
-      child: SizedBox(
-        width: settings.toolbarLabels ? 50 : 34,
-        height: settings.toolbarLabels ? 58 : 34,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.more_horiz, size: 19, color: muted),
-            if (settings.toolbarLabels) ...[
-              const SizedBox(height: 4),
-              const Text('更多', style: TextStyle(color: muted, fontSize: 10)),
-            ],
-          ],
-        ),
-      ),
+      child: _menuFace(Icons.more_horiz, '更多'),
     );
   }
 
-  Widget _toolbar() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [_mainToolbar(), if (session != null) _detailToolbar()],
-  );
-
-  bool _toolbarEnabled(AppCommand command) => switch (command) {
+  bool _editorCommandEnabled(AppCommand command) => switch (command) {
     AppCommand.copy => editor?.selection.isCollapsed == false,
     AppCommand.paste => session != null && !_activeReadOnly,
     _ => _enabled(command),
   };
 
-  void _runToolbarCommand(AppCommand command) {
-    if (!_toolbarEnabled(command)) return;
+  void _runEditorCommand(AppCommand command) {
+    if (!_editorCommandEnabled(command)) return;
     if (command == AppCommand.copy || command == AppCommand.paste) {
-      // 工具栏点击会改变焦点，直接对当前文档操作，避免把剪贴板交给按钮。
+      // 菜单操作会改变焦点，直接对当前文档操作，避免把剪贴板交给菜单项。
       final target = editor!;
       if (command == AppCommand.copy) {
         unawaited(target.copy());
@@ -1483,68 +1542,6 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     }
     _runCommand(command);
   }
-
-  Widget _detailToolbar() => Container(
-    height: 36,
-    decoration: const BoxDecoration(
-      color: panel,
-      border: Border(bottom: BorderSide(color: border)),
-    ),
-    child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final item in [
-            (AppCommand.copy, Icons.copy_outlined, '复制'),
-            (AppCommand.paste, Icons.paste_outlined, '粘贴'),
-            (AppCommand.goToLine, Icons.pin_outlined, '跳转行'),
-            (AppCommand.previousInlineDiff, Icons.first_page, '上一行内差异'),
-            (AppCommand.nextInlineDiff, Icons.last_page, '下一行内差异'),
-            (AppCommand.toggleOverview, Icons.view_week_outlined, '概览条'),
-            (AppCommand.toggleLineDetails, Icons.view_stream_outlined, '行详情'),
-            (AppCommand.toggleWordWrap, Icons.wrap_text, '自动换行'),
-            (AppCommand.toggleWordDiff, Icons.text_fields, '单词差异'),
-            (AppCommand.toggleMovedBlocks, Icons.move_down, '移动代码'),
-          ])
-            ListenableBuilder(
-              listenable: Listenable.merge([
-                session!.leftEditor,
-                session!.rightEditor,
-                if (session!.resultEditor != null) session!.resultEditor!,
-              ]),
-              builder: (_, _) => Tooltip(
-                message: _shortcutHint(item.$1.label, item.$1),
-                child: TextButton.icon(
-                  key: ValueKey('command-${item.$1.name}'),
-                  onPressed: _toolbarEnabled(item.$1)
-                      ? () => _runToolbarCommand(item.$1)
-                      : null,
-                  icon: Icon(item.$2, size: 16),
-                  label: settings.toolbarLabels
-                      ? Text(item.$3, style: const TextStyle(fontSize: 11))
-                      : const SizedBox.shrink(),
-                  style: TextButton.styleFrom(
-                    foregroundColor:
-                        item.$1 == AppCommand.toggleOverview &&
-                                settings.showOverview ||
-                            item.$1 == AppCommand.toggleLineDetails &&
-                                settings.showLineDetails ||
-                            item.$1 == AppCommand.toggleWordWrap &&
-                                settings.wordWrap ||
-                            item.$1 == AppCommand.toggleWordDiff &&
-                                settings.inlineMode == InlineDiffMode.words ||
-                            item.$1 == AppCommand.toggleMovedBlocks &&
-                                settings.detectMoves
-                        ? accent
-                        : muted,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    ),
-  );
 
   Widget _lineDetails() {
     final s = session!;
@@ -1589,14 +1586,14 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     );
   }
 
-  Widget _mainToolbar() {
+  Widget _toolbar() {
     final s = session;
     Widget divider() =>
         const VerticalDivider(width: 6, indent: 10, endIndent: 10);
     return Container(
       height: settings.toolbarLabels ? 66 : 44,
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: bg,
         border: Border(bottom: BorderSide(color: border)),
       ),
@@ -1656,10 +1653,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                                   : s.hunkRows.isEmpty
                                   ? '文件相同'
                                   : '${_hunk + 1} / ${s.hunkRows.length}',
-                              style: const TextStyle(
-                                color: muted,
-                                fontSize: 11,
-                              ),
+                              style: TextStyle(color: muted, fontSize: 11),
                             ),
                             _commandTool(
                               AppCommand.nextDiff,
@@ -1707,22 +1701,6 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                                 '交换左右',
                               ),
                             ],
-                            _commandTool(
-                              AppCommand.ignoreWhitespace,
-                              Icons.format_clear,
-                              '忽略空白',
-                              selected: settings.ignoreWhitespace,
-                            ),
-                            if (!s.isMerge)
-                              _commandTool(
-                                AppCommand.contextOnly,
-                                s.contextOnly
-                                    ? Icons.unfold_more
-                                    : Icons.unfold_less,
-                                '只看差异',
-                                selected: s.contextOnly,
-                                title: '仅显示差异及前后 ${settings.contextLines} 行',
-                              ),
                             const Spacer(),
                             if (s.isMerge)
                               _tag(
@@ -1742,6 +1720,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             ),
           ),
           divider(),
+          _viewMenu(),
           _moreMenu(),
           _commandTool(AppCommand.settings, Icons.tune, '设置'),
         ],

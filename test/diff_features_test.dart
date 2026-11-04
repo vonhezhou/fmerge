@@ -10,6 +10,8 @@ import 'package:fmerge/main.dart';
 import 'package:fmerge/session.dart';
 import 'package:fmerge/ui/code_pane.dart';
 
+import 'support/menus.dart';
+
 CompareSession comparison(String a, String b, {String? base}) => CompareSession(
   TextFile.empty(a),
   TextFile.empty(b),
@@ -163,10 +165,7 @@ void main() {
         s.setContextOnly(false);
         await tester.pumpAndSettle();
       }
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('command-toggleWordWrap')),
-      );
-      await tester.tap(find.byKey(const ValueKey('command-toggleWordWrap')));
+      await chooseMenuCommand(tester, 'toggleWordWrap');
       await tester.pumpAndSettle();
       expect(settings.wordWrap, false);
       expect(line(0, 1).height, line(1, 1).height);
@@ -201,16 +200,10 @@ void main() {
       true,
     );
     expect(s.dirty, false);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('command-toggleWordDiff')),
-    );
-    await tester.tap(find.byKey(const ValueKey('command-toggleWordDiff')));
+    await chooseMenuCommand(tester, 'toggleWordDiff');
     await tester.pumpAndSettle();
     expect(s.options.inlineMode, InlineDiffMode.words);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('command-toggleMovedBlocks')),
-    );
-    await tester.tap(find.byKey(const ValueKey('command-toggleMovedBlocks')));
+    await chooseMenuCommand(tester, 'toggleMovedBlocks');
     await tester.pumpAndSettle();
     expect(s.diff!.movedBlocks, isEmpty);
     expect(s.dirty, false);

@@ -13,6 +13,8 @@ import 'package:fmerge/ui/workbench.dart';
 import 'package:fmerge/ui/toolbar_action.dart';
 import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 
+import 'support/menus.dart';
+
 Future<void> ready(WidgetTester tester) async {
   await tester.runAsync(() async {
     final until = DateTime.now().add(const Duration(seconds: 10));
@@ -48,8 +50,6 @@ void main() {
       'takeLeft',
       'toggleLeftEdit',
       'swapSides',
-      'ignoreWhitespace',
-      'contextOnly',
       'settings',
     ]) {
       expect(
@@ -57,7 +57,12 @@ void main() {
         findsOneWidget,
       );
     }
-    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
+    expect(
+      find.byKey(const ValueKey('view-menu')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.getTopLeft(find.byType(CodePane).first).dy, 108);
+    await chooseMenuCommand(tester, 'contextOnly');
     await tester.pumpAndSettle();
     expect(s.contextOnly, true);
     expect(s.rightEditor.text, changed.join('\n'));
@@ -278,7 +283,7 @@ void main() {
       FmergeApp(settings: Settings(persist: false), initial: s),
     );
     await ready(tester);
-    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
+    await chooseMenuCommand(tester, 'contextOnly');
     await tester.pumpAndSettle();
     expect(s.contextOnly, true);
     expect(s.leftEditor.diffLayout!.totalRows, 9);
@@ -298,10 +303,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     expect(s.diff!.changes.length, 1);
-    await tester.tap(find.byKey(const ValueKey('command-ignoreWhitespace')));
+    await chooseMenuCommand(tester, 'ignoreWhitespace');
     await ready(tester);
     expect(s.diff!.changes, isEmpty);
-    await tester.tap(find.byKey(const ValueKey('command-ignoreWhitespace')));
+    await chooseMenuCommand(tester, 'ignoreWhitespace');
     await ready(tester);
     expect(s.diff!.changes.length, 1);
     expect(tester.takeException(), isNull);

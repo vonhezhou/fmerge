@@ -20,6 +20,8 @@ import 'package:fmerge/core/diff.dart' show InlineDiffMode;
 import 'package:fmerge/core/shortcuts.dart';
 import 'package:fmerge/ui/code_pane.dart';
 
+import '../test/support/menus.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const native = MethodChannel('fmerge/access');
@@ -89,10 +91,16 @@ void main() {
     await ready(s);
     expect(s.leftEditor.diffLayout!.totalRows, s.rightEditor.lineCount);
     await snapshot('diff');
-    await tester.tap(find.byKey(const ValueKey('command-nextInlineDiff')));
+    await tester.tap(find.byTooltip('视图'));
+    await tester.pumpAndSettle();
+    await snapshot('view-menu');
+    // 点选遮罩关闭菜单，避免原生窗口焦点影响合成 Escape 事件。
+    await tester.tapAt(const Offset(20, 400));
+    await tester.pumpAndSettle();
+    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '更多操作');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selection.isCollapsed, false);
-    await tester.tap(find.byKey(const ValueKey('command-copy')));
+    await chooseMenuCommand(tester, 'copy', menu: '更多操作');
     await tester.pumpAndSettle();
     expect(
       (await Clipboard.getData(Clipboard.kTextPlain))!.text,
@@ -287,12 +295,12 @@ void main() {
       largePanes.last.scroll.verticalScroller.offset,
     );
     expect(large.leftEditor.text, original.join('\n'));
-    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
+    await chooseMenuCommand(tester, 'contextOnly');
     await tester.pumpAndSettle();
     expect(large.leftEditor.diffLayout!.totalRows, 10);
     expect(large.rightEditor.diffLayout!.totalRows, 10);
     expect(large.leftEditor.text, original.join('\n'));
-    await tester.tap(find.byKey(const ValueKey('command-contextOnly')));
+    await chooseMenuCommand(tester, 'contextOnly');
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 

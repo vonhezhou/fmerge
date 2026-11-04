@@ -187,7 +187,7 @@ void main() {
     expect(s.rightEditor.text, 'right');
     expect(s.leftDirty, true);
     for (final expected in [false, true]) {
-      await tester.tap(find.byTooltip('更多操作'));
+      await tester.tap(find.byTooltip('视图'));
       await tester.pumpAndSettle();
       await tester.tap(
         find.widgetWithText(CheckedPopupMenuItem<String>, '显示工具栏文字'),
