@@ -1,0 +1,274 @@
+{
+  "baseline": "0a67c76",
+  "method": "macOS arm64 native Release; one process per version with 3 document reloads; unchanged programmatic editing and scrolling harness; no forced GC; not actual IME latency; corrected frame timestamp filter used for before/after; unfiltered datasets retained separately",
+  "unfilteredBefore": {
+    "mode": "release",
+    "lines": 100000,
+    "platform": "macos",
+    "scope": "one process; 3 document reload cycles; generated fixtures; programmatic edits and scroll; no IME or OS input latency; memory not forced-GC steady state",
+    "cycles": [
+      {
+        "cycle": 0,
+        "openAndFirstCompareMs": 373.337,
+        "rssAfterOpenMiB": 269.546875,
+        "editSyncMs": [
+          18.643,
+          19.549,
+          20.029,
+          21.104,
+          27.515
+        ],
+        "editP50Ms": 20.029,
+        "editP95Ms": 27.515,
+        "explicitCompareAfterEditsMs": 152.145,
+        "rssAfterScrollMiB": 397.46875,
+        "frameCount": 106,
+        "buildP95Ms": 27.299,
+        "rasterP95Ms": 0.822
+      },
+      {
+        "cycle": 1,
+        "openAndFirstCompareMs": 513.362,
+        "rssAfterOpenMiB": 306.03125,
+        "editSyncMs": [
+          17.655,
+          20.23,
+          20.493,
+          29.04,
+          44.185
+        ],
+        "editP50Ms": 20.493,
+        "editP95Ms": 44.185,
+        "explicitCompareAfterEditsMs": 87.2,
+        "rssAfterScrollMiB": 407.296875,
+        "frameCount": 128,
+        "buildP95Ms": 33.007,
+        "rasterP95Ms": 0.615
+      },
+      {
+        "cycle": 2,
+        "openAndFirstCompareMs": 458.315,
+        "rssAfterOpenMiB": 445.640625,
+        "editSyncMs": [
+          20.174,
+          29.642,
+          29.921,
+          37.761,
+          42.611
+        ],
+        "editP50Ms": 29.921,
+        "editP95Ms": 42.611,
+        "explicitCompareAfterEditsMs": 97.987,
+        "rssAfterScrollMiB": 405.671875,
+        "frameCount": 118,
+        "buildP95Ms": 6.391,
+        "rasterP95Ms": 0.605
+      }
+    ],
+    "peakRssMiB": 530.140625,
+    "rssAfterCloseMiB": 382.265625
+  },
+  "unfilteredAfter": {
+    "mode": "release",
+    "lines": 100000,
+    "platform": "macos",
+    "scope": "one process; 3 document reload cycles; generated fixtures; programmatic edits and scroll; no IME or OS input latency; memory not forced-GC steady state",
+    "cycles": [
+      {
+        "cycle": 0,
+        "openAndFirstCompareMs": 222.864,
+        "rssAfterOpenMiB": 263.4375,
+        "editSyncMs": [
+          0.16,
+          0.164,
+          0.168,
+          0.171,
+          0.196
+        ],
+        "editP50Ms": 0.168,
+        "editP95Ms": 0.196,
+        "explicitCompareAfterEditsMs": 100.429,
+        "rssAfterScrollMiB": 301.234375,
+        "frameCount": 130,
+        "buildP95Ms": 26.917,
+        "rasterP95Ms": 0.771
+      },
+      {
+        "cycle": 1,
+        "openAndFirstCompareMs": 209.43,
+        "rssAfterOpenMiB": 335.28125,
+        "editSyncMs": [
+          0.137,
+          0.145,
+          0.148,
+          0.158,
+          0.159
+        ],
+        "editP50Ms": 0.148,
+        "editP95Ms": 0.159,
+        "explicitCompareAfterEditsMs": 65.533,
+        "rssAfterScrollMiB": 301.25,
+        "frameCount": 133,
+        "buildP95Ms": 25.172,
+        "rasterP95Ms": 0.543
+      },
+      {
+        "cycle": 2,
+        "openAndFirstCompareMs": 193.279,
+        "rssAfterOpenMiB": 336.296875,
+        "editSyncMs": [
+          0.127,
+          0.136,
+          0.141,
+          0.141,
+          0.15
+        ],
+        "editP50Ms": 0.141,
+        "editP95Ms": 0.15,
+        "explicitCompareAfterEditsMs": 90.825,
+        "rssAfterScrollMiB": 296.359375,
+        "frameCount": 137,
+        "buildP95Ms": 25.016,
+        "rasterP95Ms": 0.555
+      }
+    ],
+    "peakRssMiB": 383.84375,
+    "rssAfterCloseMiB": 287.0
+  },
+  "before": {
+    "mode": "release",
+    "frameFilter": "buildStart wall-time derived from engine rasterFinishWallTime; strictly inside scroll stage; wait for batched reports",
+    "lines": 100000,
+    "platform": "macos",
+    "scope": "one process; 3 document reload cycles; generated fixtures; programmatic edits and scroll; no IME or OS input latency; memory not forced-GC steady state",
+    "cycles": [
+      {
+        "cycle": 0,
+        "openAndFirstCompareMs": 398.571,
+        "rssAfterOpenMiB": 269.703125,
+        "editSyncMs": [
+          17.206,
+          19.306,
+          19.635,
+          22.125,
+          33.689
+        ],
+        "editP50Ms": 19.635,
+        "editP95Ms": 33.689,
+        "explicitCompareAfterEditsMs": 164.187,
+        "rssAfterScrollMiB": 383.65625,
+        "frameCount": 113,
+        "buildP95Ms": 3.924,
+        "rasterP95Ms": 0.582
+      },
+      {
+        "cycle": 1,
+        "openAndFirstCompareMs": 381.965,
+        "rssAfterOpenMiB": 402.625,
+        "editSyncMs": [
+          18.764,
+          19.303,
+          19.584,
+          41.208,
+          43.255
+        ],
+        "editP50Ms": 19.584,
+        "editP95Ms": 43.255,
+        "explicitCompareAfterEditsMs": 84.923,
+        "rssAfterScrollMiB": 395.6875,
+        "frameCount": 116,
+        "buildP95Ms": 5.659,
+        "rasterP95Ms": 0.58
+      },
+      {
+        "cycle": 2,
+        "openAndFirstCompareMs": 358.24,
+        "rssAfterOpenMiB": 457.1875,
+        "editSyncMs": [
+          17.175,
+          18.395,
+          18.57,
+          30.332,
+          33.03
+        ],
+        "editP50Ms": 18.57,
+        "editP95Ms": 33.03,
+        "explicitCompareAfterEditsMs": 152.73,
+        "rssAfterScrollMiB": 371.5625,
+        "frameCount": 117,
+        "buildP95Ms": 4.167,
+        "rasterP95Ms": 0.602
+      }
+    ],
+    "peakRssMiB": 523.34375,
+    "rssAfterCloseMiB": 338.484375
+  },
+  "after": {
+    "mode": "release",
+    "frameFilter": "buildStart wall-time derived from engine rasterFinishWallTime; strictly inside scroll stage; wait for batched reports",
+    "lines": 100000,
+    "platform": "macos",
+    "scope": "one process; 3 document reload cycles; generated fixtures; programmatic edits and scroll; no IME or OS input latency; memory not forced-GC steady state",
+    "cycles": [
+      {
+        "cycle": 0,
+        "openAndFirstCompareMs": 255.964,
+        "rssAfterOpenMiB": 255.71875,
+        "editSyncMs": [
+          0.168,
+          0.169,
+          0.169,
+          0.184,
+          0.195
+        ],
+        "editP50Ms": 0.169,
+        "editP95Ms": 0.195,
+        "explicitCompareAfterEditsMs": 96.715,
+        "rssAfterScrollMiB": 285.046875,
+        "frameCount": 122,
+        "buildP95Ms": 2.474,
+        "rasterP95Ms": 0.59
+      },
+      {
+        "cycle": 1,
+        "openAndFirstCompareMs": 223.914,
+        "rssAfterOpenMiB": 291.515625,
+        "editSyncMs": [
+          0.145,
+          0.159,
+          0.179,
+          0.183,
+          0.184
+        ],
+        "editP50Ms": 0.179,
+        "editP95Ms": 0.184,
+        "explicitCompareAfterEditsMs": 146.872,
+        "rssAfterScrollMiB": 277.09375,
+        "frameCount": 121,
+        "buildP95Ms": 2.815,
+        "rasterP95Ms": 0.6
+      },
+      {
+        "cycle": 2,
+        "openAndFirstCompareMs": 271.901,
+        "rssAfterOpenMiB": 301.21875,
+        "editSyncMs": [
+          0.166,
+          0.18,
+          0.183,
+          0.194,
+          0.2
+        ],
+        "editP50Ms": 0.183,
+        "editP95Ms": 0.2,
+        "explicitCompareAfterEditsMs": 118.29,
+        "rssAfterScrollMiB": 271.90625,
+        "frameCount": 122,
+        "buildP95Ms": 2.748,
+        "rasterP95Ms": 0.606
+      }
+    ],
+    "peakRssMiB": 383.390625,
+    "rssAfterCloseMiB": 281.0625
+  }
+}

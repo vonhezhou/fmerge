@@ -488,6 +488,7 @@ class CodeLine {
   }
 
   String asString(int start, TextLineBreak lineBreak) {
+    if (chunks.isEmpty) return substring(start);
     return [substring(start), ...chunks.map((e) => e.asString(0, lineBreak))].join(lineBreak.value);
   }
 

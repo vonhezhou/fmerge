@@ -45,6 +45,27 @@ class CodeLines {
     return CodeLines(segments);
   }
 
+  /// 使用分段统计，不拼接正文；包含折叠子行与真实换行长度。
+  int textLength(TextLineBreak lineBreak) => segments.fold<int>(0, (n, s) => n + s.charCount)
+      + max(0, lineCount - 1) * lineBreak.value.length;
+
+  /// 正文相同与布局结构相同是两回事；折叠子行按展开内容精确比较。
+  bool contentEquals(CodeLines other) {
+    if (identical(this, other)) return true;
+    if (lineCount != other.lineCount || textLength(TextLineBreak.lf) != other.textLength(TextLineBreak.lf)) return false;
+    if (lineCount == length && other.lineCount == other.length) return equals(other);
+    Iterable<String> expand(CodeLine line) sync* {
+      yield line.text;
+      for (final CodeLine child in line.chunks) { yield* expand(child); }
+    }
+    final Iterator<String> a = segments.expand((s) => s.codeLines).expand(expand).iterator;
+    final Iterator<String> b = other.segments.expand((s) => s.codeLines).expand(expand).iterator;
+    while (a.moveNext()) {
+      if (!b.moveNext() || a.current != b.current) return false;
+    }
+    return !b.moveNext();
+  }
+
   CodeLine get first => segments.first.first;
 
   CodeLine get last => segments.last.last;
@@ -157,6 +178,7 @@ class CodeLines {
   }
 
   bool equals(CodeLines? codeLines) {
+    if (identical(this, codeLines)) return true;
     if (codeLines == null) {
       return false;
     }
@@ -193,10 +215,10 @@ class CodeLines {
       offset += segments[i].length;
     }
     // The worst is the distributions are different, we should compare them one by one
-    for (int i = offset; i < length1; i++) {
-      if (this[i] != codeLines[i]) {
-        return false;
-      }
+    final Iterator<CodeLine> left = segments.expand((s) => s.codeLines).skip(offset).iterator;
+    final Iterator<CodeLine> right = codeLines.segments.expand((s) => s.codeLines).skip(offset).iterator;
+    while (left.moveNext()) {
+      if (!right.moveNext() || left.current != right.current) return false;
     }
     return true;
   }
@@ -389,6 +411,8 @@ class CodeLineSegment with ListMixin<CodeLine> {
   int get length  => codeLines.length;
 
   int get lineCount => codeLines.fold(0, (previousValue, element) => previousValue += element.lineCount);
+
+  int get charCount => codeLines.fold(0, (n, line) => n + line.charCount);
 
   @override
   CodeLine operator [](int index) {

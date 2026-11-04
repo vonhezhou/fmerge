@@ -50,6 +50,9 @@ class ContextRows {
     hiddenRange(total);
     totalRows = display;
   }
+  Set<int> projectHidden(List<int> sourceRows) =>
+      _ProjectedHidden(hidden, sourceRows);
+
   final List<int> rows;
   final Set<int> hidden = _HiddenRanges();
   final labels = <int, String>{};
@@ -100,6 +103,33 @@ class _HiddenRanges extends SetBase<int> {
   bool add(int value) => throw UnsupportedError('只读隐藏区间');
   @override
   bool remove(Object? value) => throw UnsupportedError('只读隐藏区间');
+  @override
+  Set<int> toSet() => {...this};
+}
+
+/// 保留映射和区间引用，避免折叠后为每一真实隐藏行再分配一个集合条目。
+class _ProjectedHidden extends SetBase<int> {
+  _ProjectedHidden(this.hidden, this.source);
+  final Set<int> hidden;
+  final List<int> source;
+  @override
+  bool contains(Object? value) =>
+      value is int &&
+      value >= 0 &&
+      value < source.length &&
+      hidden.contains(source[value]);
+  @override
+  int? lookup(Object? value) => contains(value) ? value as int : null;
+  @override
+  Iterator<int> get iterator =>
+      Iterable<int>.generate(source.length).where(contains).iterator;
+  @override
+  int get length =>
+      Iterable<int>.generate(source.length).where(contains).length;
+  @override
+  bool add(int value) => throw UnsupportedError('只读隐藏行映射');
+  @override
+  bool remove(Object? value) => throw UnsupportedError('只读隐藏行映射');
   @override
   Set<int> toSet() => {...this};
 }

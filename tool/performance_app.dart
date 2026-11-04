@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show FramePhase;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -106,7 +107,14 @@ Future<void> main() async {
       for (var i = 0; i < 5; i++) {
         session.rightEditor.undo();
       }
-      if (session.rightDirty) throw StateError('撤销后内容未恢复');
+      if (session.rightDirty) {
+        final restored = session.rightEditor.text;
+        final expected = session.right.text;
+        stdout.writeln(
+          'UNDO DIAGNOSTIC: equal=${restored == expected}, length=${restored.length}/${expected.length}, counted=${session.rightEditor.codeLines.textLength(session.rightEditor.options.lineBreak)}, canUndo=${session.rightEditor.canUndo}',
+        );
+        throw StateError('撤销后内容未恢复');
+      }
       await session.refresh();
       await frame();
       final panes = <CodePane>[];
@@ -118,13 +126,24 @@ Future<void> main() async {
       (rootKey.currentContext! as Element).visitChildren(visit);
       final pane = panes.last;
       timings.clear();
+      final scrollStart = DateTime.now().microsecondsSinceEpoch;
       for (var i = 0; i < 120; i++) {
         final scroll = pane.scroll.verticalScroller;
         scroll.jumpTo(scroll.position.maxScrollExtent * ((i * 37) % 119) / 119);
         await frame(const Duration(milliseconds: 16));
       }
-      await frame(const Duration(milliseconds: 600));
-      final frames = [...timings];
+      final scrollEnd = DateTime.now().microsecondsSinceEpoch;
+      final rssAfterScroll = ProcessInfo.currentRss / 1048576;
+      // Release 约每秒批量上报；按真实帧阶段时间过滤，避免混入前序编辑帧。
+      await frame(const Duration(milliseconds: 1200));
+      await frame();
+      final frames = timings.where((f) {
+        final buildWallTime =
+            f.timestampInMicroseconds(FramePhase.rasterFinishWallTime) -
+            (f.timestampInMicroseconds(FramePhase.rasterFinish) -
+                f.timestampInMicroseconds(FramePhase.buildStart));
+        return buildWallTime >= scrollStart && buildWallTime < scrollEnd;
+      }).toList();
       if (frames.isEmpty) throw StateError('没有采集到真实渲染帧');
       cycles.add({
         'cycle': cycle,
@@ -134,7 +153,7 @@ Future<void> main() async {
         'editP50Ms': percentile(edits, .5),
         'editP95Ms': percentile(edits, .95),
         'explicitCompareAfterEditsMs': editCompareMs,
-        'rssAfterScrollMiB': ProcessInfo.currentRss / 1048576,
+        'rssAfterScrollMiB': rssAfterScroll,
         'frameCount': frames.length,
         'buildP95Ms': percentile(
           frames.map((f) => f.buildDuration.inMicroseconds / 1000).toList(),
@@ -151,6 +170,7 @@ Future<void> main() async {
     await frame(const Duration(milliseconds: 600));
     final report = {
       'mode': 'release',
+      'frameFilter': 'buildStart wall-time derived from engine rasterFinishWallTime; strictly inside scroll stage; wait for batched reports',
       'lines': 100000,
       'platform': Platform.operatingSystem,
       'scope': 'one process; 3 document reload cycles; generated fixtures; programmatic edits and scroll; no IME or OS input latency; memory not forced-GC steady state',

@@ -4,6 +4,8 @@ part of re_editor;
 @immutable
 class CodeDiffLayout {
   final List<int> lineRows;
+  /// 折叠后的真实可见行索引，按升序排列；提供时渲染只遍历这些行。
+  final List<int>? visibleLines;
   final int totalRows;
   final Set<int> hiddenLines;
   final Map<int, String> rowLabels;
@@ -11,7 +13,7 @@ class CodeDiffLayout {
   final bool showWhitespace;
   final Map<int, List<CodeDiffRange>> ranges;
   const CodeDiffLayout({required this.lineRows, required this.totalRows,
-    this.hiddenLines = const {}, this.rowLabels = const {}, this.rowColors = const {}, this.ranges = const {}, this.showWhitespace = false});
+    this.visibleLines, this.hiddenLines = const {}, this.rowLabels = const {}, this.rowColors = const {}, this.ranges = const {}, this.showWhitespace = false});
 }
 
 @immutable

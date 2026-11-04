@@ -35,10 +35,14 @@ class CompareSession extends ChangeNotifier {
       resultEditor = CodeLineEditingController.fromText(merger!.state.text);
       resultEditor!.addListener(_resultChanged);
     }
-    _lastLeft = leftEditor.text;
-    _lastRight = rightEditor.text;
+    _lastLeft = leftEditor.codeLines;
+    _lastRight = rightEditor.codeLines;
     _lastLeftSelection = leftEditor.selection;
     _lastRightSelection = rightEditor.selection;
+    _leftChange.seed(left.original, leftEditor.codeLines);
+    if (isMerge || output == null) {
+      _rightChange.seed(right.original, rightEditor.codeLines);
+    }
     leftEditor.addListener(_inputChanged);
     rightEditor.addListener(_inputChanged);
     _lastResult = resultEditor?.text ?? '';
@@ -69,7 +73,8 @@ class CompareSession extends ChangeNotifier {
       savedMerge = false,
       _disposed = false,
       _programmatic = false;
-  late String _lastLeft, _lastRight, _lastResult, _savedResult;
+  late CodeLines _lastLeft, _lastRight;
+  late String _lastResult, _savedResult;
   late CodeLineSelection _lastLeftSelection, _lastRightSelection;
   Timer? _timer;
   final CompareRunner? compareRunner;
@@ -103,8 +108,8 @@ class CompareSession extends ChangeNotifier {
     final controller = leftEditor;
     leftEditor = rightEditor;
     rightEditor = controller;
-    _lastLeft = leftEditor.text;
-    _lastRight = rightEditor.text;
+    _lastLeft = leftEditor.codeLines;
+    _lastRight = rightEditor.codeLines;
     _lastLeftSelection = leftEditor.selection;
     _lastRightSelection = rightEditor.selection;
     diff = null;
@@ -133,10 +138,11 @@ class CompareSession extends ChangeNotifier {
       return CodeDiffLayout(
         lineRows: [for (final row in layout.lineRows) map.rows[row]],
         totalRows: map.totalRows,
-        hiddenLines: {
+        hiddenLines: map.projectHidden(layout.lineRows),
+        visibleLines: [
           for (var i = 0; i < layout.lineRows.length; i++)
-            if (map.hidden.contains(layout.lineRows[i])) i,
-        },
+            if (!map.hidden.contains(layout.lineRows[i])) i,
+        ],
         rowLabels: map.labels,
         rowColors: {
           for (final entry in layout.rowColors.entries)
@@ -161,6 +167,7 @@ class CompareSession extends ChangeNotifier {
             lineRows: layout.lineRows,
             totalRows: layout.totalRows,
             hiddenLines: layout.hiddenLines,
+            visibleLines: layout.visibleLines,
             rowLabels: layout.rowLabels,
             rowColors: layout.rowColors,
             ranges: layout.ranges,
@@ -189,12 +196,12 @@ class CompareSession extends ChangeNotifier {
 
   int get pending => merger?.pending ?? 0;
   bool get leftDirty =>
-      _leftChange.changed(leftEditor.text, left.original) ||
+      _leftChange.changed(leftEditor.codeLines, left.original) ||
       saveEncodings.containsKey(0) ||
       saveEols.containsKey(0);
   bool get rightDirty =>
       _rightChange.changed(
-        rightEditor.text,
+        rightEditor.codeLines,
         (!isMerge && output != null ? output! : right).original,
       ) ||
       saveEncodings.containsKey(1) ||
@@ -270,12 +277,12 @@ class CompareSession extends ChangeNotifier {
 
   void _inputChanged() {
     if (_programmatic || _disposed) return;
-    final a = leftEditor.text, b = rightEditor.text;
+    final a = leftEditor.codeLines, b = rightEditor.codeLines;
     final movedLeft = _lastLeftSelection != leftEditor.selection;
     final movedRight = _lastRightSelection != rightEditor.selection;
     _lastLeftSelection = leftEditor.selection;
     _lastRightSelection = rightEditor.selection;
-    if (a == _lastLeft && b == _lastRight) {
+    if (a.contentEquals(_lastLeft) && b.contentEquals(_lastRight)) {
       // 查找、跳转或键盘导航进入隐藏行时展开，避免光标落在不可见内容中。
       if (contextOnly &&
           ((movedLeft &&
@@ -657,16 +664,27 @@ class CompareSession extends ChangeNotifier {
   }
 }
 
-/// 光标移动时复用判断；只有正文或保存基线变化才重新规范化、比较全文。
+/// 复用保存基线的分段文档，局部输入只比较实际改变的段，不读取全文字符串。
 class _InputChange {
-  String? _edited, _original;
+  String? _original;
+  CodeLines? _baseline, _edited;
   bool _changed = false;
 
-  bool changed(String edited, String original) {
-    if (!identical(edited, _edited) || !identical(original, _original)) {
-      _changed = edited != normalize(original);
-      _edited = edited;
+  void seed(String original, CodeLines baseline) {
+    _original = original;
+    _baseline = _edited = baseline;
+    _changed = false;
+  }
+
+  bool changed(CodeLines edited, String original) {
+    if (!identical(original, _original)) {
       _original = original;
+      _baseline = CodeLines.fromText(normalize(original));
+      _edited = null;
+    }
+    if (!identical(edited, _edited)) {
+      _changed = !edited.contentEquals(_baseline!);
+      _edited = edited;
     }
     return _changed;
   }

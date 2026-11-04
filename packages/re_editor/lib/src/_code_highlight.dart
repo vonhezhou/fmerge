@@ -174,6 +174,8 @@ class _CodeHighlighter extends ValueNotifier<List<_HighlightResult>> {
 
 class _CodeHighlightEngine {
 
+  int _generation = 0;
+
   late final _IsolateTasker<_HighlightPayload, List<_HighlightResult>> _tasker;
 
   Highlight? _highlight;
@@ -207,6 +209,7 @@ class _CodeHighlightEngine {
   }
 
   void run(CodeLines codes, IsolateCallback<List<_HighlightResult>> callback) {
+    final int generation = ++_generation;
     final Highlight? highlight = _highlight;
     if (highlight == null) {
       callback(const []);
@@ -217,13 +220,21 @@ class _CodeHighlightEngine {
       callback(const []);
       return;
     }
+    // 超出高亮预算直接按可见行显示纯文本，不发送全文、更不构建全文纯文本高亮树。
+    final int maxSize = modes.values.map((m) => m.maxSize).reduce(min);
+    if (codes.textLength(TextLineBreak.lf) > maxSize) {
+      callback(const []);
+      return;
+    }
     _tasker.run(_HighlightPayload(
       highlight: highlight,
       codes: codes,
       languages: modes.keys.toList(),
       maxSizes: modes.values.map((e) => e.maxSize).toList(),
       maxLineLengths: modes.values.map((e) => e.maxLineLength).toList(),
-    ), callback);
+    ), (result) {
+      if (generation == _generation) callback(result);
+    });
   }
 
   @pragma('vm:entry-point')
@@ -231,22 +242,16 @@ class _CodeHighlightEngine {
     final CodeLines codeLines = payload.codes;
     final int maxSize = payload.maxSizes.reduce(min);
     final int maxLineLength = payload.maxLineLengths.reduce(min);
-    // Evalaute performance
-    bool canHighlight = true;
-    int total = 0;
-    for (int i = 0; i < codeLines.length; i++) {
-      final int length = codeLines[i].length;
-      if (length > maxLineLength || total > maxSize) {
-        canHighlight = false;
-        break;
+    var total = 0;
+    for (final CodeLineSegment segment in codeLines.segments) {
+      for (final CodeLine line in segment.codeLines) {
+        total += line.length;
+        if (line.length > maxLineLength || total > maxSize) return const [];
       }
-      total += length;
     }
     final String code = payload.codes.asString(TextLineBreak.lf, false);
     final HighlightResult result;
-    if (!canHighlight) {
-      result = payload.highlight.justTextHighlightResult(code);
-    } else if (payload.languages.length == 1) {
+    if (payload.languages.length == 1) {
       result = payload.highlight.highlight(code: code, language: payload.languages.first);
     } else {
       result = payload.highlight.highlightAuto(code, payload.languages);

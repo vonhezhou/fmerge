@@ -1224,6 +1224,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     _preferredLineHeight = painter.preferredLineHeight;
     _foregroundRender.find<_CodeFieldCursorPainter>().height = painter.preferredLineHeight;
     _foregroundRender.find<_CodeFieldFloatingCursorPainter>().height = painter.preferredLineHeight;
+    painter.dispose();
   }
 
   void _onCursorVisibleChanged() {
@@ -1353,15 +1354,19 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     _verticalViewport.applyContentDimensions(0, _verticalViewportSize!);
     final top = _verticalViewport.pixels;
     final bottom = top + size.height;
-    var low = 0, high = layout.lineRows.length;
+    final visible = layout.visibleLines;
+    final count = visible?.length ?? layout.lineRows.length;
+    int realLine(int position) => visible == null ? position : visible[position];
+    var low = 0, high = count;
     final targetRow = max(0, ((top - paddingTop) / _preferredLineHeight).floor());
     while (low < high) {
       final middle = (low + high) ~/ 2;
-      if (layout.lineRows[middle] < targetRow) { low = middle + 1; } else { high = middle; }
+      if (layout.lineRows[realLine(middle)] < targetRow) { low = middle + 1; } else { high = middle; }
     }
     _displayParagraphs.clear();
-    for (var i = max(0, low - 1); i < _codes.length; i++) {
-      if (layout.hiddenLines.contains(i)) continue;
+    for (var position = max(0, low - 1); position < count; position++) {
+      final i = realLine(position);
+      if (visible == null && layout.hiddenLines.contains(i)) continue;
       final y = paddingTop + layout.lineRows[i] * _preferredLineHeight;
       if (y > bottom + _preferredLineHeight && _displayParagraphs.isNotEmpty) break;
       final paragraph = _buildParagraph(i, double.infinity);

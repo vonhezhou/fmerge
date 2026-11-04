@@ -1989,7 +1989,7 @@ class _CodeLineEditingCache {
 
   _CodeLineEditingCache(this.controller) {
     controller.addListener(_onValueChanged);
-    _node = _CodeLineEditingCacheNode(controller.value, controller.text.length);
+    _node = _CodeLineEditingCacheNode(controller.value, controller.codeLines.textLength(controller.options.lineBreak));
     _markNewRecord = false;
   }
 
@@ -2012,7 +2012,7 @@ class _CodeLineEditingCache {
   }
 
   void clear() {
-    _node = _CodeLineEditingCacheNode(controller.value, controller.text.length);
+    _node = _CodeLineEditingCacheNode(controller.value, controller.codeLines.textLength(controller.options.lineBreak));
     _markNewRecord = false;
   }
 
@@ -2026,6 +2026,11 @@ class _CodeLineEditingCache {
 
   void _onValueChanged() {
     if (_node.value == controller.value) {
+      return;
+    }
+    // 光标、输入法组合区和折叠变化不新增正文历史，也不截断可重做分支。
+    if (_node.value.codeLines.contentEquals(controller.codeLines)) {
+      _node.value = controller.value;
       return;
     }
     if (_node.isInitial) {
@@ -2042,12 +2047,12 @@ class _CodeLineEditingCache {
       return;
     }
     _node.value = controller.value;
-    _node.characters = controller.text.length;
+    _node.characters = controller.codeLines.textLength(controller.options.lineBreak);
     _trimHistory();
   }
 
   void _appendNewNode() {
-    final _CodeLineEditingCacheNode newNode = _CodeLineEditingCacheNode(controller.value, controller.text.length);
+    final _CodeLineEditingCacheNode newNode = _CodeLineEditingCacheNode(controller.value, controller.codeLines.textLength(controller.options.lineBreak));
     if (_node.next != null) {
       _node.next!.pre = null;
     }
