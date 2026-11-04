@@ -45,7 +45,12 @@ class DiffOverview extends StatelessWidget {
                 children: [
                   RepaintBoundary(
                     child: CustomPaint(
-                      painter: _OverviewPainter(left, right, wordWrap),
+                      painter: _OverviewPainter(
+                        left,
+                        right,
+                        wordWrap,
+                        AppPalette.of(context),
+                      ),
                     ),
                   ),
                   AnimatedBuilder(
@@ -64,6 +69,7 @@ class DiffOverview extends StatelessWidget {
                       return CustomPaint(
                         size: Size(22, constraints.maxHeight),
                         painter: _ViewportPainter(
+                          AppPalette.of(context),
                           extent == 0 ? 0 : position!.pixels / extent,
                           extent == 0
                               ? 1
@@ -83,13 +89,14 @@ class DiffOverview extends StatelessWidget {
 }
 
 class _OverviewPainter extends CustomPainter {
-  _OverviewPainter(this.left, this.right, this.wordWrap)
+  _OverviewPainter(this.left, this.right, this.wordWrap, this.colors)
     : super(repaint: wordWrap ? left?.wrap : null);
   final CodeDiffLayout? left, right;
   final bool wordWrap;
+  final AppPalette colors;
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = bg);
+    canvas.drawRect(Offset.zero & size, Paint()..color = colors.bg);
     void lane(CodeDiffLayout? layout, double x, Color color) {
       if (layout == null || layout.totalRows == 0) return;
       final wrap = wordWrap ? layout.wrap : null;
@@ -97,7 +104,7 @@ class _OverviewPainter extends CustomPainter {
           ? wrap.totalRows
           : layout.totalRows;
       for (final entry in layout.rowColors.entries) {
-        if (entry.value == bg) continue;
+        if (entry.value == colors.bg) continue;
         final top =
             (wrap?.rowStart(entry.key) ?? entry.key) / total * size.height;
         final height = math.max(
@@ -112,27 +119,31 @@ class _OverviewPainter extends CustomPainter {
             height,
           ),
           Paint()
-            ..color = entry.value == amber
-                ? amber
-                : entry.value == movedBg
-                ? movedInk
+            ..color = entry.value == colors.amber
+                ? colors.amber
+                : entry.value == colors.movedBg
+                ? colors.movedInk
                 : color,
         );
       }
     }
 
-    lane(left, 2, red);
-    lane(right, 12, green);
+    lane(left, 2, colors.red);
+    lane(right, 12, colors.green);
   }
 
   @override
   bool shouldRepaint(_OverviewPainter old) =>
-      old.left != left || old.right != right || old.wordWrap != wordWrap;
+      old.colors != colors ||
+      old.left != left ||
+      old.right != right ||
+      old.wordWrap != wordWrap;
 }
 
 /// 滚动只重绘视口框，避免每一帧遍历整份文件的差异标记。
 class _ViewportPainter extends CustomPainter {
-  const _ViewportPainter(this.start, this.visible);
+  const _ViewportPainter(this.colors, this.start, this.visible);
+  final AppPalette colors;
   final double start, visible;
   @override
   void paint(Canvas canvas, Size size) {
@@ -142,16 +153,19 @@ class _ViewportPainter extends CustomPainter {
       size.width - .5,
       ((start + visible) * size.height).clamp(0, size.height),
     );
-    canvas.drawRect(viewport, Paint()..color = accent.withValues(alpha: .12));
+    canvas.drawRect(
+      viewport,
+      Paint()..color = colors.accent.withValues(alpha: .12),
+    );
     canvas.drawRect(
       viewport,
       Paint()
-        ..color = accent
+        ..color = colors.accent
         ..style = PaintingStyle.stroke,
     );
   }
 
   @override
   bool shouldRepaint(_ViewportPainter old) =>
-      old.start != start || old.visible != visible;
+      old.colors != colors || old.start != start || old.visible != visible;
 }

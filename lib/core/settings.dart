@@ -1,14 +1,34 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart'
+    show ChangeNotifier, ThemeMode, Brightness;
+
+import '../palette.dart' show ColorTheme;
 import 'diff.dart';
 import 'shortcuts.dart';
 
-class Settings {
+class Settings extends ChangeNotifier {
   Settings({this.persist = true, this.storageDirectory});
   final bool persist;
   final String? storageDirectory;
   Future<void> _saveTail = Future<void>.value();
+  ThemeMode themeMode = ThemeMode.system;
+  ColorTheme lightTheme = ColorTheme.githubLight;
+  ColorTheme darkTheme = ColorTheme.fmergeDark;
+
+  void setAppearance({ThemeMode? mode, ColorTheme? theme}) {
+    if (mode != null) themeMode = mode;
+    if (theme != null) {
+      if (theme.brightness == Brightness.light) {
+        lightTheme = theme;
+      } else {
+        darkTheme = theme;
+      }
+    }
+    notifyListeners();
+  }
+
   double fontSize = 13;
   int contextLines = 3;
   bool contextOnly = false;
@@ -67,6 +87,13 @@ class Settings {
         json[name] is num ? (json[name] as num).toDouble() : fallback;
     bool flag(String name, bool fallback) =>
         json[name] is bool ? json[name] as bool : fallback;
+    themeMode =
+        ThemeMode.values
+            .where((m) => m.name == json['themeMode'])
+            .firstOrNull ??
+        ThemeMode.system;
+    lightTheme = ColorTheme.read(json['lightTheme'], Brightness.light);
+    darkTheme = ColorTheme.read(json['darkTheme'], Brightness.dark);
     fontSize = number('fontSize', 13).clamp(10, 24);
     contextLines = number('contextLines', 3).clamp(0, 1000).toInt();
     contextOnly = flag('contextOnly', false);
@@ -92,6 +119,9 @@ class Settings {
   }
 
   Map<String, dynamic> preferencesJson() => {
+    'themeMode': themeMode.name,
+    'lightTheme': lightTheme.name,
+    'darkTheme': darkTheme.name,
     'fontSize': fontSize,
     'contextLines': contextLines,
     'contextOnly': contextOnly,

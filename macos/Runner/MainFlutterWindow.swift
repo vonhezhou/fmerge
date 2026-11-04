@@ -3,6 +3,7 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   private var fileAccess: FmergeAccess?
+  private var appearanceChannel: FlutterMethodChannel?
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     fileAccess = FmergeAccess(messenger: flutterViewController.engine.binaryMessenger)
@@ -13,8 +14,24 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
     self.contentMinSize = NSSize(width: 920, height: 680)
-    self.appearance = NSAppearance(named: .darkAqua)
-    self.backgroundColor = NSColor(srgbRed: 0.067, green: 0.082, blue: 0.11, alpha: 1)
+    // 跟随系统时不覆盖窗口外观，避免将 Flutter 的平台亮度锁定为暗色。
+    self.appearance = nil
+    appearanceChannel = FlutterMethodChannel(name: "fmerge/appearance", binaryMessenger: flutterViewController.engine.binaryMessenger)
+    appearanceChannel?.setMethodCallHandler { [weak self] call, reply in
+      #if FMERGE_INTEGRATION_TEST
+      if call.method == "getMode" {
+        reply(self?.appearance == nil ? "system" : self?.appearance?.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light")
+        return
+      }
+      #endif
+      guard call.method == "setMode", let mode = call.arguments as? String,
+            ["system", "light", "dark"].contains(mode) else {
+        reply(FlutterMethodNotImplemented)
+        return
+      }
+      self?.appearance = mode == "system" ? nil : NSAppearance(named: mode == "dark" ? .darkAqua : .aqua)
+      reply(nil)
+    }
     self.center()
 
     RegisterGeneratedPlugins(registry: flutterViewController)

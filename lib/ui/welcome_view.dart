@@ -40,19 +40,23 @@ class WelcomeView extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: accent.withValues(alpha: .1),
+                      color: AppPalette.of(context).accent
+                          .withValues(alpha: .1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.difference_outlined,
-                      color: accent,
+                      color: AppPalette.of(context).accent,
                       size: 26,
                     ),
                   ),
                   const SizedBox(width: 14),
-                  const Text(
+                  Text(
                     '你的代码，清晰对照。',
-                    style: TextStyle(color: muted, fontSize: 13),
+                    style: TextStyle(
+                      color: AppPalette.of(context).muted,
+                      fontSize: 13,
+                    ),
                   ),
                 ],
               ),
@@ -67,12 +71,16 @@ class WelcomeView extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 '选择两份文件并排比较，也可以新建文本比较。',
-                style: TextStyle(fontSize: 14, color: muted),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppPalette.of(context).muted,
+                ),
               ),
               const SizedBox(height: 28),
               _action(
+                context,
                 Icons.folder_open_outlined,
                 '文件比较',
                 '直接选择两个文件，支持多选；只选一个时会继续选择另一份。',
@@ -91,8 +99,8 @@ class WelcomeView extends StatelessWidget {
                 children: [
                   Text(
                     entries.isEmpty ? '使用提示' : '最近打开',
-                    style: const TextStyle(
-                      color: muted,
+                    style: TextStyle(
+                      color: AppPalette.of(context).muted,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -103,15 +111,18 @@ class WelcomeView extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               if (entries.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: Text(
                     '⌘ / Ctrl O  打开文件     ·     F7  跳转差异     ·     ⌘ / Ctrl S  保存',
-                    style: TextStyle(color: muted, fontSize: 12),
+                    style: TextStyle(
+                      color: AppPalette.of(context).muted,
+                      fontSize: 12,
+                    ),
                   ),
                 )
               else
-                for (final entry in entries) _recentItem(entry),
+                for (final entry in entries) _recentItem(context, entry),
             ],
           ),
         ),
@@ -120,6 +131,7 @@ class WelcomeView extends StatelessWidget {
   }
 
   Widget _action(
+    BuildContext context,
     IconData icon,
     String title,
     String description,
@@ -129,23 +141,34 @@ class WelcomeView extends StatelessWidget {
   }) => Container(
     padding: const EdgeInsets.all(22),
     decoration: BoxDecoration(
-      color: panel,
+      color: AppPalette.of(context).panel,
       border: Border.all(
-        color: primary ? accent.withValues(alpha: .4) : border,
+        color: primary
+            ? AppPalette.of(context).accent.withValues(alpha: .4)
+            : AppPalette.of(context).border,
       ),
       borderRadius: BorderRadius.circular(12),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 24, color: primary ? accent : muted),
+        Icon(
+          icon,
+          size: 24,
+          color: primary
+              ? AppPalette.of(context).accent
+              : AppPalette.of(context).muted,
+        ),
         const SizedBox(height: 18),
         Text(
           title,
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 6),
-        Text(description, style: const TextStyle(color: muted, fontSize: 12)),
+        Text(
+          description,
+          style: TextStyle(color: AppPalette.of(context).muted, fontSize: 12),
+        ),
         const SizedBox(height: 22),
         if (primary)
           FilledButton.icon(
@@ -163,7 +186,7 @@ class WelcomeView extends StatelessWidget {
     ),
   );
 
-  Widget _recentItem(Map<String, dynamic> entry) {
+  Widget _recentItem(BuildContext context, Map<String, dynamic> entry) {
     final left = entry['left'] as String;
     final right = entry['right'] as String;
     final base = entry['base'];
@@ -183,7 +206,7 @@ class WelcomeView extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 10),
         leading: Icon(
           entry['base'] == null ? Icons.compare_arrows : Icons.merge,
-          color: muted,
+          color: AppPalette.of(context).muted,
           size: 20,
         ),
         title: Text(
@@ -206,11 +229,18 @@ class WelcomeView extends StatelessWidget {
                 directory,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: muted),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppPalette.of(context).muted,
+                ),
               ),
           ],
         ),
-        trailing: const Icon(Icons.north_west, size: 15, color: muted),
+        trailing: Icon(
+          Icons.north_west,
+          size: 15,
+          color: AppPalette.of(context).muted,
+        ),
         onTap: () => onRecent(entry),
       ),
     );

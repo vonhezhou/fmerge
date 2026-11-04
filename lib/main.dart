@@ -64,13 +64,20 @@ Future<void> main(List<String> args) async {
       nativeWindow: true,
     ),
   );
+  final platformBrightness =
+      WidgetsBinding.instance.platformDispatcher.platformBrightness;
+  final useLight =
+      settings.themeMode == ThemeMode.light ||
+      (settings.themeMode == ThemeMode.system &&
+          platformBrightness == Brightness.light);
+  final startupTheme = useLight ? settings.lightTheme : settings.darkTheme;
   await windowManager.waitUntilReadyToShow(
-    const WindowOptions(
-      size: Size(1200, 800),
-      minimumSize: Size(920, 680),
+    WindowOptions(
+      size: const Size(1200, 800),
+      minimumSize: const Size(920, 680),
       center: true,
       title: 'fmerge',
-      backgroundColor: bg,
+      backgroundColor: palettes[startupTheme]!.bg,
     ),
     () async {
       await windowManager.show();
@@ -96,17 +103,24 @@ class FmergeApp extends StatelessWidget {
   final bool nativeWindow;
   final ValueChanged<int>? onExit;
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'fmerge',
-    debugShowCheckedModeBanner: false,
-    theme: buildAppTheme(),
-    home: Workbench(
-      initial: initial,
-      settings: settings,
-      options: options,
-      startupError: startupError,
-      nativeWindow: nativeWindow,
-      onExit: onExit,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: settings,
+    builder: (context, _) => MaterialApp(
+      title: 'fmerge',
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(palette: palettes[settings.lightTheme]),
+      darkTheme: buildAppTheme(palette: palettes[settings.darkTheme]),
+      themeMode: settings.themeMode,
+      // 差异布局在颜色切换时立即重建，避免动画期间语义色与布局色不一致。
+      themeAnimationDuration: Duration.zero,
+      home: Workbench(
+        initial: initial,
+        settings: settings,
+        options: options,
+        startupError: startupError,
+        nativeWindow: nativeWindow,
+        onExit: onExit,
+      ),
     ),
   );
 }

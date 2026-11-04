@@ -127,11 +127,18 @@ class LanguageMenu extends StatelessWidget {
                 child: Text(
                   value == null ? '自动 · $label' : label,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: muted),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppPalette.of(context).muted,
+                  ),
                 ),
               ),
             ),
-            const Icon(Icons.arrow_drop_down, size: 16, color: muted),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 16,
+              color: AppPalette.of(context).muted,
+            ),
           ],
         ),
       ),
@@ -206,7 +213,7 @@ class _CodePaneState extends State<CodePane> {
 
   @override
   Widget build(BuildContext context) => ColoredBox(
-    color: panel,
+    color: AppPalette.of(context).panel,
     child: CodeEditor(
       controller: controller,
       scrollController: scroll,
@@ -275,11 +282,11 @@ class _CodePaneState extends State<CodePane> {
           'Microsoft YaHei',
           'monospace',
         ],
-        textColor: ink,
-        backgroundColor: panel,
-        cursorColor: accent,
-        selectionColor: const Color(0xff365274),
-        cursorLineColor: border,
+        textColor: AppPalette.of(context).ink,
+        backgroundColor: AppPalette.of(context).panel,
+        cursorColor: AppPalette.of(context).accent,
+        selectionColor: AppPalette.of(context).selection,
+        cursorLineColor: AppPalette.of(context).border,
         codeTheme: !settings.highlight || !_languages.containsKey(language)
             ? null
             : CodeHighlightTheme(
@@ -291,7 +298,10 @@ class _CodePaneState extends State<CodePane> {
                   ),
                 },
                 theme: atomOneDarkTheme.map(
-                  (key, _) => MapEntry(key, TextStyle(color: tokenColor(key))),
+                  (key, _) => MapEntry(
+                    key,
+                    TextStyle(color: AppPalette.of(context).tokenColor(key)),
+                  ),
                 ),
               ),
       ),
@@ -302,7 +312,7 @@ class _CodePaneState extends State<CodePane> {
             textStyle: TextStyle(
               fontFamily: 'monospace',
               fontSize: settings.fontSize - 1,
-              color: muted,
+              color: AppPalette.of(context).muted,
             ),
           ),
     ),
@@ -339,7 +349,7 @@ class _FindPanel extends StatelessWidget implements PreferredSizeWidget {
         : '无结果';
     return Container(
       height: preferredSize.height,
-      color: elevated,
+      color: AppPalette.of(context).elevated,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Column(
         children: [
@@ -352,7 +362,7 @@ class _FindPanel extends StatelessWidget implements PreferredSizeWidget {
                     controller: controller.findInputController,
                     focusNode: controller.findInputFocusNode,
                     style: const TextStyle(fontSize: 12),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: '查找',
                       isDense: true,
                       border: InputBorder.none,
@@ -366,7 +376,9 @@ class _FindPanel extends StatelessWidget implements PreferredSizeWidget {
                     status,
                     style: TextStyle(
                       fontSize: 11,
-                      color: invalidRegex ? red : muted,
+                      color: invalidRegex
+                          ? AppPalette.of(context).red
+                          : AppPalette.of(context).muted,
                     ),
                   ),
                 ),
@@ -377,8 +389,8 @@ class _FindPanel extends StatelessWidget implements PreferredSizeWidget {
                     Icons.text_fields,
                     size: 16,
                     color: controller.value?.option.caseSensitive == true
-                        ? accent
-                        : muted,
+                        ? AppPalette.of(context).accent
+                        : AppPalette.of(context).muted,
                   ),
                 ),
                 IconButton(
@@ -388,8 +400,8 @@ class _FindPanel extends StatelessWidget implements PreferredSizeWidget {
                     Icons.data_object,
                     size: 16,
                     color: controller.value?.option.regex == true
-                        ? accent
-                        : muted,
+                        ? AppPalette.of(context).accent
+                        : AppPalette.of(context).muted,
                   ),
                 ),
                 IconButton(
@@ -426,7 +438,7 @@ class _FindPanel extends StatelessWidget implements PreferredSizeWidget {
                       controller: controller.replaceInputController,
                       focusNode: controller.replaceInputFocusNode,
                       style: const TextStyle(fontSize: 12),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: '替换为',
                         isDense: true,
                         border: InputBorder.none,
@@ -487,7 +499,7 @@ class ContextMenuControllerImpl implements SelectionToolbarController {
         ),
         child: Material(
           elevation: 8,
-          color: elevated,
+          color: AppPalette.of(context).elevated,
           borderRadius: BorderRadius.circular(8),
           child: SizedBox(
             width: 200,

@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../palette.dart';
 
-ThemeData buildAppTheme() {
+ThemeData buildAppTheme({AppPalette? palette}) {
+  final colors = palette ?? palettes[ColorTheme.fmergeDark]!;
   const shape = RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(8)),
   );
@@ -17,56 +18,63 @@ ThemeData buildAppTheme() {
     ),
   );
   return ThemeData(
-    brightness: Brightness.dark,
+    brightness: colors.brightness,
+    extensions: [colors],
     useMaterial3: true,
-    scaffoldBackgroundColor: bg,
-    colorScheme: const ColorScheme.dark(
-      primary: accent,
-      onPrimary: bg,
-      secondary: accent,
-      surface: panel,
-      onSurface: ink,
-      onSurfaceVariant: muted,
-      outline: border,
-      error: red,
+    scaffoldBackgroundColor: colors.bg,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: colors.accent,
+      brightness: colors.brightness,
+      primary: colors.accent,
+      onPrimary: colors.bg,
+      secondary: colors.accent,
+      surface: colors.panel,
+      onSurface: colors.ink,
+      onSurfaceVariant: colors.muted,
+      outline: colors.border,
+      error: colors.red,
     ),
     fontFamily: Platform.isMacOS ? 'PingFang SC' : null,
-    dividerColor: border,
-    dividerTheme: const DividerThemeData(color: border, space: 1, thickness: 1),
-    textTheme: const TextTheme(
-      bodyMedium: TextStyle(fontSize: 13, color: ink, height: 1.5),
-      bodySmall: TextStyle(fontSize: 12, color: muted, height: 1.5),
+    dividerColor: colors.border,
+    dividerTheme: DividerThemeData(
+      color: colors.border,
+      space: 1,
+      thickness: 1,
+    ),
+    textTheme: TextTheme(
+      bodyMedium: TextStyle(fontSize: 13, color: colors.ink, height: 1.5),
+      bodySmall: TextStyle(fontSize: 12, color: colors.muted, height: 1.5),
       titleLarge: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
-        color: ink,
+        color: colors.ink,
       ),
       titleMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w600,
-        color: ink,
+        color: colors.ink,
       ),
     ),
-    listTileTheme: const ListTileThemeData(
-      titleTextStyle: TextStyle(fontSize: 13, color: ink),
-      subtitleTextStyle: TextStyle(fontSize: 12, color: muted),
-      iconColor: muted,
+    listTileTheme: ListTileThemeData(
+      titleTextStyle: TextStyle(fontSize: 13, color: colors.ink),
+      subtitleTextStyle: TextStyle(fontSize: 12, color: colors.muted),
+      iconColor: colors.muted,
     ),
     filledButtonTheme: FilledButtonThemeData(style: buttonStyle),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: buttonStyle.copyWith(
         foregroundColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.disabled)
-              ? muted.withValues(alpha: .4)
-              : ink,
+              ? colors.muted.withValues(alpha: .4)
+              : colors.ink,
         ),
-        side: const WidgetStatePropertyAll(BorderSide(color: border)),
+        side: WidgetStatePropertyAll(BorderSide(color: colors.border)),
       ),
     ),
     textButtonTheme: TextButtonThemeData(style: buttonStyle),
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
-        foregroundColor: muted,
+        foregroundColor: colors.muted,
         minimumSize: const Size(34, 34),
         padding: const EdgeInsets.all(7),
         shape: shape,
@@ -75,88 +83,90 @@ ThemeData buildAppTheme() {
     inputDecorationTheme: InputDecorationTheme(
       isDense: true,
       filled: true,
-      fillColor: bg,
+      fillColor: colors.bg,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      labelStyle: const TextStyle(color: muted, fontSize: 12),
+      labelStyle: TextStyle(color: colors.muted, fontSize: 12),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: border),
+        borderSide: BorderSide(color: colors.border),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: accent, width: 1.5),
+        borderSide: BorderSide(color: colors.accent, width: 1.5),
       ),
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: panel,
+      backgroundColor: colors.panel,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: border),
+        side: BorderSide(color: colors.border),
       ),
-      titleTextStyle: const TextStyle(
+      titleTextStyle: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
-        color: ink,
+        color: colors.ink,
       ),
       actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
     ),
     cardTheme: CardThemeData(
-      color: elevated,
+      color: colors.elevated,
       elevation: 0,
-      shape: shape.copyWith(side: const BorderSide(color: border)),
+      shape: shape.copyWith(side: BorderSide(color: colors.border)),
       margin: const EdgeInsets.symmetric(vertical: 6),
     ),
     popupMenuTheme: PopupMenuThemeData(
-      color: elevated,
+      color: colors.elevated,
       surfaceTintColor: Colors.transparent,
-      shape: shape.copyWith(side: const BorderSide(color: border)),
-      textStyle: const TextStyle(color: ink, fontSize: 12),
+      shape: shape.copyWith(side: BorderSide(color: colors.border)),
+      textStyle: TextStyle(color: colors.ink, fontSize: 12),
     ),
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: ButtonStyle(
         shape: const WidgetStatePropertyAll(shape),
         textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 12)),
-        side: const WidgetStatePropertyAll(BorderSide(color: border)),
+        side: WidgetStatePropertyAll(BorderSide(color: colors.border)),
         backgroundColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
-              ? accent.withValues(alpha: .14)
+              ? colors.accent.withValues(alpha: .14)
               : Colors.transparent,
         ),
         foregroundColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.disabled)
-              ? muted.withValues(alpha: .4)
+              ? colors.muted.withValues(alpha: .4)
               : states.contains(WidgetState.selected)
-              ? accent
-              : muted,
+              ? colors.accent
+              : colors.muted,
         ),
       ),
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (states) => states.contains(WidgetState.selected) ? accent : muted,
+        (states) => states.contains(WidgetState.selected)
+            ? colors.accent
+            : colors.muted,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)
-            ? accent.withValues(alpha: .2)
-            : elevated,
+            ? colors.accent.withValues(alpha: .2)
+            : colors.elevated,
       ),
-      trackOutlineColor: const WidgetStatePropertyAll(border),
+      trackOutlineColor: WidgetStatePropertyAll(colors.border),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: elevated,
-      contentTextStyle: const TextStyle(color: ink, fontSize: 13),
+      backgroundColor: colors.elevated,
+      contentTextStyle: TextStyle(color: colors.ink, fontSize: 13),
       behavior: SnackBarBehavior.floating,
-      shape: shape.copyWith(side: const BorderSide(color: border)),
+      shape: shape.copyWith(side: BorderSide(color: colors.border)),
     ),
-    tooltipTheme: const TooltipThemeData(
+    tooltipTheme: TooltipThemeData(
       waitDuration: Duration(milliseconds: 500),
-      textStyle: TextStyle(color: ink, fontSize: 12),
+      textStyle: TextStyle(color: colors.ink, fontSize: 12),
       decoration: BoxDecoration(
-        color: elevated,
+        color: colors.elevated,
         borderRadius: BorderRadius.all(Radius.circular(6)),
-        border: Border.fromBorderSide(BorderSide(color: border)),
+        border: Border.fromBorderSide(BorderSide(color: colors.border)),
       ),
     ),
   );

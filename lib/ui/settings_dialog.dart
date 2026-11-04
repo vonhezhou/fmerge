@@ -108,7 +108,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
             padding: const EdgeInsets.fromLTRB(24, 18, 12, 18),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -122,7 +122,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       SizedBox(height: 4),
                       Text(
                         '比较、显示、快捷键与 Git 集成',
-                        style: TextStyle(color: muted, fontSize: 12),
+                        style: TextStyle(
+                          color: AppPalette.of(context).muted,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -141,7 +144,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Material(
-                  color: bg,
+                  color: AppPalette.of(context).bg,
                   child: Container(
                     width: 154,
                     padding: const EdgeInsets.all(8),
@@ -183,8 +186,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                                 borderRadius: BorderRadius.circular(7),
                               ),
                               selected: _selected == item.$1,
-                              selectedTileColor: accent.withValues(alpha: .12),
-                              selectedColor: accent,
+                              selectedTileColor: AppPalette.of(context).accent
+                                  .withValues(alpha: .12),
+                              selectedColor: AppPalette.of(context).accent,
                               leading: Icon(item.$2, size: 18),
                               title: Text(
                                 item.$3,
@@ -228,10 +232,13 @@ class _SettingsDialogState extends State<SettingsDialog> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    '关闭后应用并记住设置',
-                    style: TextStyle(color: muted, fontSize: 11),
+                    '外观即时预览，关闭后记住设置',
+                    style: TextStyle(
+                      color: AppPalette.of(context).muted,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
                 FilledButton(onPressed: _done, child: const Text('完成')),
@@ -253,17 +260,20 @@ class _SettingsDialogState extends State<SettingsDialog> {
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 6),
-        Text(description, style: const TextStyle(fontSize: 12, color: muted)),
+        Text(
+          description,
+          style: TextStyle(fontSize: 12, color: AppPalette.of(context).muted),
+        ),
       ],
     ),
   );
   Widget _card(List<Widget> children) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: Material(
-      color: elevated,
+      color: AppPalette.of(context).elevated,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: border),
+        side: BorderSide(color: AppPalette.of(context).border),
       ),
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
@@ -282,7 +292,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
     title: Text(title, style: const TextStyle(fontSize: 13)),
     subtitle: subtitle.isEmpty
         ? null
-        : Text(subtitle, style: const TextStyle(fontSize: 11, color: muted)),
+        : Text(
+            subtitle,
+            style: TextStyle(fontSize: 11, color: AppPalette.of(context).muted),
+          ),
     value: value,
     onChanged: (value) => setState(() => change(value)),
   );
@@ -390,7 +403,13 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       }),
                 icon: const Icon(Icons.add, size: 16),
               ),
-              const Text('行', style: TextStyle(fontSize: 12, color: muted)),
+              Text(
+                '行',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppPalette.of(context).muted,
+                ),
+              ),
             ],
           ),
         ),
@@ -401,6 +420,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _heading('编辑器与外观', '常用显示操作也可从工具栏和更多菜单快速切换。'),
+      _appearance(),
       _card([
         _toggle(
           '显示工具栏文字',
@@ -435,7 +455,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   const Spacer(),
                   Text(
                     '${s.fontSize.round()} px',
-                    style: const TextStyle(color: accent),
+                    style: TextStyle(color: AppPalette.of(context).accent),
                   ),
                 ],
               ),
@@ -453,6 +473,93 @@ class _SettingsDialogState extends State<SettingsDialog> {
       ]),
     ],
   );
+  Widget _appearance() => _card([
+    Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('外观模式', style: TextStyle(fontSize: 13)),
+          const SizedBox(height: 12),
+          SegmentedButton<ThemeMode>(
+            segments: const [
+              ButtonSegment(
+                value: ThemeMode.system,
+                icon: Icon(Icons.brightness_auto),
+                label: Text('跟随系统'),
+              ),
+              ButtonSegment(
+                value: ThemeMode.light,
+                icon: Icon(Icons.light_mode_outlined),
+                label: Text('亮色'),
+              ),
+              ButtonSegment(
+                value: ThemeMode.dark,
+                icon: Icon(Icons.dark_mode_outlined),
+                label: Text('暗色'),
+              ),
+            ],
+            selected: {s.themeMode},
+            onSelectionChanged: (value) =>
+                setState(() => s.setAppearance(mode: value.single)),
+          ),
+          const SizedBox(height: 18),
+          _themeChoice('亮色主题', Brightness.light, s.lightTheme),
+          const SizedBox(height: 14),
+          _themeChoice('暗色主题', Brightness.dark, s.darkTheme),
+          const SizedBox(height: 12),
+          Text(
+            '即时预览界面、语法高亮与差异配色；亮暗主题分别记住。',
+            style: TextStyle(fontSize: 11, color: AppPalette.of(context).muted),
+          ),
+        ],
+      ),
+    ),
+  ]);
+
+  Widget _themeChoice(
+    String label,
+    Brightness brightness,
+    ColorTheme selected,
+  ) => DropdownButtonFormField<ColorTheme>(
+    key: ValueKey('theme-${brightness.name}'),
+    initialValue: selected,
+    decoration: InputDecoration(labelText: label),
+    items: [
+      for (final theme in ColorTheme.values.where(
+        (t) => t.brightness == brightness,
+      ))
+        DropdownMenuItem(
+          value: theme,
+          child: Row(
+            children: [
+              for (final color in [
+                palettes[theme]!.bg,
+                palettes[theme]!.accent,
+                palettes[theme]!.green,
+                palettes[theme]!.red,
+              ])
+                Container(
+                  width: 12,
+                  height: 12,
+                  margin: const EdgeInsets.only(right: 4),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(3),
+                    border: Border.all(color: AppPalette.of(context).border),
+                  ),
+                ),
+              const SizedBox(width: 6),
+              Text(theme.label, style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+    ],
+    onChanged: (theme) {
+      if (theme != null) setState(() => s.setAppearance(theme: theme));
+    },
+  );
+
   Widget _files() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -477,9 +584,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   '只记住你在系统选择器中授予的访问权限。撤销后，下次读写相关文件时需重新授权。',
-                  style: TextStyle(color: muted, fontSize: 12),
+                  style: TextStyle(
+                    color: AppPalette.of(context).muted,
+                    fontSize: 12,
+                  ),
                 ),
                 const SizedBox(height: 14),
                 OutlinedButton(
@@ -487,9 +597,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   child: Text(_revoking ? '正在撤销文件授权…' : '撤销已授权文件与目录'),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   '重启后完全生效。',
-                  style: TextStyle(color: muted, fontSize: 11),
+                  style: TextStyle(
+                    color: AppPalette.of(context).muted,
+                    fontSize: 11,
+                  ),
                 ),
                 if (_accessNotice != null)
                   Padding(
@@ -498,7 +611,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     child: SelectableText(
                       _accessNotice!,
                       style: TextStyle(
-                        color: _accessFailed ? red : green,
+                        color: _accessFailed
+                            ? AppPalette.of(context).red
+                            : AppPalette.of(context).green,
                         fontSize: 12,
                       ),
                     ),

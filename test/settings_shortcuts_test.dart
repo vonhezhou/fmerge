@@ -221,7 +221,7 @@ void main() {
     final settingsRect = tester.getRect(
       find.byKey(const ValueKey('command-settings')),
     );
-    for (final key in ['swapSides', 'ignoreWhitespace', 'contextOnly']) {
+    for (final key in ['swapSides']) {
       expect(
         find.byKey(ValueKey('command-$key')).hitTestable(),
         findsOneWidget,
@@ -231,6 +231,15 @@ void main() {
         lessThan(settingsRect.left),
       );
     }
+    await tester.tap(find.byTooltip('视图'));
+    await tester.pumpAndSettle();
+    for (final key in ['ignoreWhitespace', 'contextOnly']) {
+      final item = find.byKey(ValueKey('command-$key'));
+      await tester.ensureVisible(item);
+      expect(item.hitTestable(), findsOneWidget);
+    }
+    await tester.tapAt(const Offset(10, 300));
+    await tester.pumpAndSettle();
     first.rightEditor.text = '${first.rightEditor.text}\nedited';
     await tester.pump(const Duration(milliseconds: 170));
     await waitUntil(tester, () => !first.busy);

@@ -21,9 +21,9 @@ class GitSettings extends StatelessWidget {
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
-        const Text(
+        Text(
           '复制对应命令，在终端执行一次。下面的按钮只复制命令，不修改 Git 配置。',
-          style: TextStyle(color: muted, fontSize: 12),
+          style: TextStyle(color: AppPalette.of(context).muted, fontSize: 12),
         ),
         const SizedBox(height: 20),
         _card(
@@ -42,16 +42,19 @@ class GitSettings extends StatelessWidget {
           commands.skip(2).join('\n'),
         ),
         const SizedBox(height: 20),
-        const Text('当前程序', style: TextStyle(color: muted, fontSize: 11)),
+        Text(
+          '当前程序',
+          style: TextStyle(color: AppPalette.of(context).muted, fontSize: 11),
+        ),
         const SizedBox(height: 6),
         SelectableText(
           Platform.resolvedExecutable,
-          style: const TextStyle(fontSize: 11, color: muted),
+          style: TextStyle(fontSize: 11, color: AppPalette.of(context).muted),
         ),
         const SizedBox(height: 14),
-        const Text(
+        Text(
           '移动或重新安装应用后，请从新位置重新复制配置。三方合并由 Git 或命令行打开。',
-          style: TextStyle(fontSize: 12, color: muted),
+          style: TextStyle(fontSize: 12, color: AppPalette.of(context).muted),
         ),
       ],
     );
@@ -64,10 +67,10 @@ class GitSettings extends StatelessWidget {
     String description,
     String script,
   ) => Material(
-    color: elevated,
+    color: AppPalette.of(context).elevated,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(10),
-      side: const BorderSide(color: border),
+      side: BorderSide(color: AppPalette.of(context).border),
     ),
     clipBehavior: Clip.antiAlias,
     child: Padding(
@@ -86,14 +89,20 @@ class GitSettings extends StatelessWidget {
                 const Spacer(),
                 Text(
                   command,
-                  style: const TextStyle(color: accent, fontSize: 12),
+                  style: TextStyle(
+                    color: AppPalette.of(context).accent,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
               description,
-              style: const TextStyle(color: muted, fontSize: 12),
+              style: TextStyle(
+                color: AppPalette.of(context).muted,
+                fontSize: 12,
+              ),
             ),
             const SizedBox(height: 14),
             FilledButton.tonalIcon(
@@ -112,9 +121,12 @@ class GitSettings extends StatelessWidget {
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
               childrenPadding: EdgeInsets.zero,
-              title: const Text(
+              title: Text(
                 '查看完整命令',
-                style: TextStyle(fontSize: 12, color: muted),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppPalette.of(context).muted,
+                ),
               ),
               children: [
                 SingleChildScrollView(

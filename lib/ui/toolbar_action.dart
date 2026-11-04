@@ -28,8 +28,12 @@ class ToolbarAction extends StatelessWidget {
         style: TextButton.styleFrom(
           minimumSize: Size.zero,
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-          foregroundColor: selected ? accent : muted,
-          backgroundColor: selected ? accent.withValues(alpha: .1) : null,
+          foregroundColor: selected
+              ? AppPalette.of(context).accent
+              : AppPalette.of(context).muted,
+          backgroundColor: selected
+              ? AppPalette.of(context).accent.withValues(alpha: .1)
+              : null,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

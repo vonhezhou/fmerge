@@ -89,7 +89,7 @@ class _LineDetailsState extends State<LineDetails> {
       children.add(
         TextSpan(
           text: ' …',
-          style: TextStyle(color: muted),
+          style: TextStyle(color: AppPalette.of(context).muted),
         ),
       );
     }
@@ -98,16 +98,19 @@ class _LineDetailsState extends State<LineDetails> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppPalette.of(context);
     final rowHeight = (widget.fontSize * 1.5 + 10).clamp(30.0, 48.0);
     final row = widget.row;
     final identical = row != null && row.left != null && row.left == row.right;
     Color rowColor(int side) => identical
-        ? panel
-        : (side == 0 ? removedBg : addedBg).withValues(alpha: .32);
+        ? colors.panel
+        : (side == 0 ? colors.removedBg : colors.addedBg).withValues(
+            alpha: .32,
+          );
     return Container(
       decoration: BoxDecoration(
-        color: panel,
-        border: Border(top: BorderSide(color: border)),
+        color: colors.panel,
+        border: Border(top: BorderSide(color: colors.border)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -119,14 +122,14 @@ class _LineDetailsState extends State<LineDetails> {
               padding: const EdgeInsets.only(left: 12, right: 6),
               child: Row(
                 children: [
-                  Icon(Icons.segment, size: 14, color: muted),
+                  Icon(Icons.segment, size: 14, color: colors.muted),
                   const SizedBox(width: 6),
                   Text(
                     widget.conflict ? '冲突首行' : '行详情',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
-                      color: muted,
+                      color: colors.muted,
                     ),
                   ),
                   if (identical) ...[
@@ -135,7 +138,7 @@ class _LineDetailsState extends State<LineDetails> {
                       '两侧相同',
                       style: TextStyle(
                         fontSize: 10,
-                        color: muted.withValues(alpha: .7),
+                        color: colors.muted.withValues(alpha: .7),
                       ),
                     ),
                   ],
@@ -144,7 +147,11 @@ class _LineDetailsState extends State<LineDetails> {
                       padding: const EdgeInsets.only(left: 6),
                       child: Tooltip(
                         message: '三方输入按共同祖先对齐；高亮为各侧相对祖先的变化',
-                        child: Icon(Icons.info_outline, size: 13, color: muted),
+                        child: Icon(
+                          Icons.info_outline,
+                          size: 13,
+                          color: colors.muted,
+                        ),
                       ),
                     ),
                   const Spacer(),
@@ -153,7 +160,7 @@ class _LineDetailsState extends State<LineDetails> {
                       key: const ValueKey('follow-moved-block'),
                       onPressed: widget.onFollowMove,
                       style: TextButton.styleFrom(
-                        foregroundColor: movedInk,
+                        foregroundColor: colors.movedInk,
                         minimumSize: Size.zero,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
@@ -172,7 +179,7 @@ class _LineDetailsState extends State<LineDetails> {
                     tooltip: '隐藏行详情',
                     onPressed: widget.onClose,
                     icon: const Icon(Icons.close, size: 14),
-                    color: muted,
+                    color: colors.muted,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints.tightFor(
                       width: 24,
@@ -193,7 +200,7 @@ class _LineDetailsState extends State<LineDetails> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     '正在比较或当前行没有可对应的输入',
-                    style: TextStyle(color: muted, fontSize: 11),
+                    style: TextStyle(color: colors.muted, fontSize: 11),
                   ),
                 ),
               ),
@@ -214,10 +221,10 @@ class _LineDetailsState extends State<LineDetails> {
                             height: rowHeight,
                             padding: const EdgeInsets.only(left: 12, right: 10),
                             decoration: BoxDecoration(
-                              color: elevated.withValues(alpha: .35),
+                              color: colors.elevated.withValues(alpha: .35),
                               border: Border(
                                 right: BorderSide(
-                                  color: border.withValues(alpha: .6),
+                                  color: colors.border.withValues(alpha: .6),
                                 ),
                               ),
                             ),
@@ -226,14 +233,16 @@ class _LineDetailsState extends State<LineDetails> {
                                 Container(
                                   width: 2,
                                   height: 12,
-                                  color: (side == 0 ? red : green).withValues(
-                                    alpha: .8,
-                                  ),
+                                  color: (side == 0 ? colors.red : colors.green)
+                                      .withValues(alpha: .8),
                                 ),
                                 const SizedBox(width: 7),
                                 Text(
                                   side == 0 ? '左侧' : '右侧',
-                                  style: TextStyle(fontSize: 10, color: muted),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: colors.muted,
+                                  ),
                                 ),
                                 Expanded(
                                   child: Text(
@@ -247,7 +256,7 @@ class _LineDetailsState extends State<LineDetails> {
                                     style: TextStyle(
                                       fontFamily: 'monospace',
                                       fontSize: 10,
-                                      color: muted,
+                                      color: colors.muted,
                                     ),
                                   ),
                                 ),
@@ -294,7 +303,7 @@ class _LineDetailsState extends State<LineDetails> {
                                               ? TextSpan(
                                                   text: '此侧无对应行',
                                                   style: TextStyle(
-                                                    color: muted,
+                                                    color: colors.muted,
                                                     fontSize: 11,
                                                   ),
                                                 )
@@ -308,15 +317,15 @@ class _LineDetailsState extends State<LineDetails> {
                                                       : row.rightMarks,
                                                   widget.tabSizes[side],
                                                   side == 0
-                                                      ? removedInline
-                                                      : addedInline,
+                                                      ? colors.removedInline
+                                                      : colors.addedInline,
                                                 ),
                                           key: ValueKey('line-detail-$side'),
                                           style: TextStyle(
                                             fontFamily: 'monospace',
                                             fontSize: widget.fontSize,
                                             height: 1.5,
-                                            color: ink,
+                                            color: colors.ink,
                                           ),
                                           maxLines: 1,
                                           softWrap: false,

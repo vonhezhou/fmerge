@@ -76,6 +76,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   void initState() {
     super.initState();
     _notice = widget.startupError;
+    settings.addListener(_appearanceChanged);
     _leftFocus.addListener(() => _focus(0));
     _rightFocus.addListener(() => _focus(1));
     _resultFocus.addListener(() => _focus(2));
@@ -112,6 +113,38 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   }
 
   Settings get settings => widget.settings;
+  AppPalette _palette = palettes[ColorTheme.fmergeDark]!;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _palette = AppPalette.of(context);
+    session?.setPalette(_palette);
+    _appearanceChanged();
+  }
+
+  (AppPalette, ThemeMode)? _nativeAppearance;
+  void _appearanceChanged() {
+    if (!widget.nativeWindow) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final appearance = (_palette, settings.themeMode);
+      if (_nativeAppearance == appearance) return;
+      _nativeAppearance = appearance;
+      try {
+        if (Platform.isMacOS) {
+          await const MethodChannel('fmerge/appearance')
+              .invokeMethod<void>('setMode', settings.themeMode.name);
+        } else {
+          await windowManager.setBrightness(_palette.brightness);
+        }
+        await windowManager.setBackgroundColor(_palette.bg);
+      } catch (error) {
+        if (mounted) _message('更新窗口外观失败：$error');
+      }
+    });
+  }
+
   void _sync(ScrollController from, ScrollController to) {
     if (_syncing || from.positions.length != 1 || to.positions.length != 1) {
       return;
@@ -152,6 +185,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     _rightFind?.dispose();
     _resultFind?.dispose();
     session = next;
+    next.setPalette(_palette);
     _leftFind = CodeFindController(next.leftEditor);
     _rightFind = CodeFindController(next.rightEditor);
     _leftFind!.addListener(_findChanged);
@@ -349,7 +383,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                 padding: const EdgeInsets.all(16),
                 child: Text(
                   error.message,
-                  style: const TextStyle(color: muted, fontSize: 12),
+                  style: TextStyle(
+                    color: AppPalette.of(context).muted,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               for (final value in TextEncoding.values)
@@ -1112,6 +1149,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   @override
   void dispose() {
+    settings.removeListener(_appearanceChanged);
     if (widget.nativeWindow) {
       windowManager.removeListener(this);
       const MethodChannel('fmerge/lifecycle').setMethodCallHandler(null);
@@ -1301,7 +1339,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       const SizedBox(width: 20),
       Text(
         settings.shortcuts[command]?.label ?? '',
-        style: const TextStyle(fontSize: 10, color: muted),
+        style: TextStyle(fontSize: 10, color: AppPalette.of(context).muted),
       ),
     ],
   );
@@ -1326,10 +1364,13 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, size: 19, color: muted),
+        Icon(icon, size: 19, color: AppPalette.of(context).muted),
         if (settings.toolbarLabels) ...[
           const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: muted, fontSize: 10)),
+          Text(
+            label,
+            style: TextStyle(color: AppPalette.of(context).muted, fontSize: 10),
+          ),
         ],
       ],
     ),
@@ -1594,8 +1635,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       height: settings.toolbarLabels ? 66 : 44,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
-        color: bg,
-        border: Border(bottom: BorderSide(color: border)),
+        color: AppPalette.of(context).bg,
+        border: Border(
+          bottom: BorderSide(color: AppPalette.of(context).border),
+        ),
       ),
       child: Row(
         children: [
@@ -1653,7 +1696,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                                   : s.hunkRows.isEmpty
                                   ? '文件相同'
                                   : '${_hunk + 1} / ${s.hunkRows.length}',
-                              style: TextStyle(color: muted, fontSize: 11),
+                              style: TextStyle(
+                                color: AppPalette.of(context).muted,
+                                fontSize: 11,
+                              ),
                             ),
                             _commandTool(
                               AppCommand.nextDiff,
@@ -1707,7 +1753,9 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                                 s.pending > 0
                                     ? '${s.pending} 处冲突待确认'
                                     : '全部冲突已处理',
-                                s.pending > 0 ? amber : green,
+                                s.pending > 0
+                                    ? AppPalette.of(context).amber
+                                    : AppPalette.of(context).green,
                               ),
                           ] else
                             const Spacer(),
@@ -1741,7 +1789,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           ...layout.rowColors,
           for (final (_, row) in s.branchDiffs![side].changedRows)
             if (row.rightLine == null && row.leftLine != null)
-              s.mergeAlignment!.baseRows[row.leftLine!]: amber,
+              s.mergeAlignment!.baseRows[row.leftLine!]: AppPalette.of(context)
+                  .amber,
         },
       );
     }
@@ -1848,9 +1897,13 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               ),
               child: Container(
                 height: 7,
-                color: border,
+                color: AppPalette.of(context).border,
                 alignment: Alignment.center,
-                child: Container(width: 38, height: 2, color: muted),
+                child: Container(
+                  width: 38,
+                  height: 2,
+                  color: AppPalette.of(context).muted,
+                ),
               ),
             ),
           ),
@@ -1889,13 +1942,17 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         height: 42,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: _active == side ? elevated : panel,
+          color: _active == side
+              ? AppPalette.of(context).elevated
+              : AppPalette.of(context).panel,
           border: Border(
             top: BorderSide(
-              color: _active == side ? accent : Colors.transparent,
+              color: _active == side
+                  ? AppPalette.of(context).accent
+                  : Colors.transparent,
               width: 2,
             ),
-            bottom: const BorderSide(color: border),
+            bottom: BorderSide(color: AppPalette.of(context).border),
           ),
         ),
         child: Row(
@@ -1904,10 +1961,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               readOnly ? Icons.lock_outline : Icons.edit_outlined,
               size: 13,
               color: side == 0
-                  ? red
+                  ? AppPalette.of(context).red
                   : side == 1
-                  ? green
-                  : accent,
+                  ? AppPalette.of(context).green
+                  : AppPalette.of(context).accent,
             ),
             const SizedBox(width: 7),
             Flexible(
@@ -1916,7 +1973,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                 child: Text(
                   title,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: muted),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppPalette.of(context).muted,
+                  ),
                 ),
               ),
             ),
@@ -1936,9 +1996,15 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                 : side == 1
                 ? session!.rightDirty
                 : session!.resultDirty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(left: 5),
-                child: Text('●', style: TextStyle(color: amber, fontSize: 10)),
+                child: Text(
+                  '●',
+                  style: TextStyle(
+                    color: AppPalette.of(context).amber,
+                    fontSize: 10,
+                  ),
+                ),
               ),
             if (side == 2 && session!.base != null)
               TextButton(
@@ -1951,7 +2017,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       if (session!.isMerge && side < 2)
         Container(
           height: 28,
-          color: elevated,
+          color: AppPalette.of(context).elevated,
           alignment: Alignment.centerLeft,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Tooltip(
@@ -1965,7 +2031,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   : session!.mergeLabels.rightSource,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: muted, fontSize: 11),
+              style: TextStyle(
+                color: AppPalette.of(context).muted,
+                fontSize: 11,
+              ),
             ),
           ),
         ),
@@ -2048,7 +2117,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   Widget _mergeContext() {
     final s = session!, labels = s.mergeLabels;
     return Container(
-      color: elevated,
+      color: AppPalette.of(context).elevated,
       padding: const EdgeInsets.only(left: 12, right: 4),
       child: Row(
         children: [
@@ -2057,7 +2126,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               labels.summary,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: accent),
+              style: TextStyle(
+                fontSize: 12,
+                color: AppPalette.of(context).accent,
+              ),
             ),
           ),
           if (labels.operation == MergeOperation.files &&
@@ -2124,12 +2196,12 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   Widget _mergeToolbar() {
     final s = session!, regions = s.merger!.state.regions;
     if (regions.isEmpty) {
-      return const SizedBox(
+      return SizedBox(
         height: 36,
         child: Center(
           child: Text(
             '双方修改没有冲突，可检查结果并保存。',
-            style: TextStyle(fontSize: 12, color: green),
+            style: TextStyle(fontSize: 12, color: AppPalette.of(context).green),
           ),
         ),
       );
@@ -2138,7 +2210,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     final r = regions[_conflict];
     return Container(
       height: 48,
-      color: elevated,
+      color: AppPalette.of(context).elevated,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -2152,7 +2224,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
             ),
             Text(
               '${_conflict + 1}/${regions.length} · 祖先 L${r.chunk.start + 1}',
-              style: const TextStyle(fontSize: 11, color: muted),
+              style: TextStyle(
+                fontSize: 11,
+                color: AppPalette.of(context).muted,
+              ),
             ),
             IconButton(
               tooltip: _shortcutHint('下一处冲突', AppCommand.nextConflict),
@@ -2204,13 +2279,17 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               icon: Icon(
                 r.resolved ? Icons.check_circle : Icons.radio_button_unchecked,
                 size: 15,
-                color: r.resolved ? green : amber,
+                color: r.resolved
+                    ? AppPalette.of(context).green
+                    : AppPalette.of(context).amber,
               ),
               label: Text(
                 r.resolved ? '已确认' : '标记解决',
                 style: TextStyle(
                   fontSize: 11,
-                  color: r.resolved ? green : amber,
+                  color: r.resolved
+                      ? AppPalette.of(context).green
+                      : AppPalette.of(context).amber,
                 ),
               ),
             ),
@@ -2253,8 +2332,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     return Container(
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: border)),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: AppPalette.of(context).border)),
       ),
       child: Row(
         children: [
@@ -2270,7 +2349,9 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                 : '已保存',
             style: TextStyle(
               fontSize: 11,
-              color: s?.dirty == true ? amber : muted,
+              color: s?.dirty == true
+                  ? AppPalette.of(context).amber
+                  : AppPalette.of(context).muted,
             ),
           ),
           const Spacer(),
@@ -2282,26 +2363,32 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   s.error!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: red, fontSize: 11),
+                  style: TextStyle(
+                    color: AppPalette.of(context).red,
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ),
           if (s?.diff?.timedOut == true)
-            const Flexible(
+            Flexible(
               child: Tooltip(
                 message: '差异计算已降级为较粗的区间',
                 child: Text(
                   '差异计算已降级为较粗的区间',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: amber, fontSize: 11),
+                  style: TextStyle(
+                    color: AppPalette.of(context).amber,
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ),
           const SizedBox(width: 12),
           Text(
             '${settings.shortcuts[AppCommand.nextDiff]?.label ?? "未设置"} 差异 · ${settings.shortcuts[AppCommand.nextConflict]?.label ?? "未设置"} 冲突 · ${settings.shortcuts[AppCommand.save]?.label ?? "未设置"} 保存',
-            style: TextStyle(fontSize: 11, color: muted),
+            style: TextStyle(fontSize: 11, color: AppPalette.of(context).muted),
           ),
         ],
       ),
@@ -2318,14 +2405,17 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   );
   Widget _banner(String text, VoidCallback dismiss, {VoidCallback? action}) =>
       Container(
-        color: const Color(0xff3c3020),
+        color: AppPalette.of(context).conflictBg,
         padding: const EdgeInsets.only(left: 14),
         child: Row(
           children: [
             Expanded(
               child: Text(
                 text,
-                style: const TextStyle(fontSize: 12, color: amber),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppPalette.of(context).amber,
+                ),
               ),
             ),
             if (action != null)

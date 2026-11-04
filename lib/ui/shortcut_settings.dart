@@ -31,9 +31,9 @@ class _ShortcutSettingsState extends State<ShortcutSettings> {
           ),
         ],
       ),
-      const Text(
+      Text(
         '点击键位后按下新组合。重复绑定会提示冲突；可清除不需要的快捷键。',
-        style: TextStyle(fontSize: 12, color: muted),
+        style: TextStyle(fontSize: 12, color: AppPalette.of(context).muted),
       ),
       const SizedBox(height: 16),
       for (final group
@@ -42,8 +42,8 @@ class _ShortcutSettingsState extends State<ShortcutSettings> {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Text(
             group,
-            style: const TextStyle(
-              color: accent,
+            style: TextStyle(
+              color: AppPalette.of(context).accent,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -54,8 +54,10 @@ class _ShortcutSettingsState extends State<ShortcutSettings> {
         ))
           Container(
             padding: const EdgeInsets.symmetric(vertical: 5),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: border)),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: AppPalette.of(context).border),
+              ),
             ),
             child: Row(
               children: [
@@ -145,15 +147,22 @@ class _ShortcutRecorderState extends State<_ShortcutRecorder> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('请按下新的快捷键组合', style: TextStyle(color: muted)),
+            Text(
+              '请按下新的快捷键组合',
+              style: TextStyle(color: AppPalette.of(context).muted),
+            ),
             const SizedBox(height: 20),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
-                color: bg,
+                color: AppPalette.of(context).bg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _error == null ? accent : red),
+                border: Border.all(
+                  color: _error == null
+                      ? AppPalette.of(context).accent
+                      : AppPalette.of(context).red,
+                ),
               ),
               child: Text(
                 _candidate?.label ?? '等待按键…',
@@ -166,7 +175,10 @@ class _ShortcutRecorderState extends State<_ShortcutRecorder> {
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   _error!,
-                  style: const TextStyle(color: red, fontSize: 12),
+                  style: TextStyle(
+                    color: AppPalette.of(context).red,
+                    fontSize: 12,
+                  ),
                 ),
               ),
           ],

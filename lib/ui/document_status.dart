@@ -38,9 +38,9 @@ class DocumentStatus extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     height: 32,
     padding: const EdgeInsets.symmetric(horizontal: 8),
-    decoration: const BoxDecoration(
-      color: panel,
-      border: Border(top: BorderSide(color: border)),
+    decoration: BoxDecoration(
+      color: AppPalette.of(context).panel,
+      border: Border(top: BorderSide(color: AppPalette.of(context).border)),
     ),
     child: Row(
       children: [
@@ -63,7 +63,7 @@ class DocumentStatus extends StatelessWidget {
                 child: Text(value.label),
               ),
           ],
-          child: _value((encoding ?? file.encoding).label),
+          child: _value(context, (encoding ?? file.encoding).label),
         ),
         PopupMenuButton<String>(
           tooltip: '换行 · 保存时统一整份文件',
@@ -88,6 +88,7 @@ class DocumentStatus extends StatelessWidget {
               ),
           ],
           child: _value(
+            context,
             eol == null
                 ? file.eol
                 : {'\n': 'LF', '\r\n': 'CRLF', '\r': 'CR'}[eol]!,
@@ -106,7 +107,7 @@ class DocumentStatus extends StatelessWidget {
                   child: Text('Tab $size'),
                 ),
             ],
-            child: _value('Tab ${controller.displayTabSize}'),
+            child: _value(context, 'Tab ${controller.displayTabSize}'),
           ),
         ),
         Expanded(
@@ -126,7 +127,10 @@ class DocumentStatus extends StatelessWidget {
               message: changeTooltip ?? '',
               child: Text(
                 changeSummary!,
-                style: const TextStyle(fontSize: 10, color: muted),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppPalette.of(context).muted,
+                ),
               ),
             ),
           ),
@@ -137,7 +141,10 @@ class DocumentStatus extends StatelessWidget {
                 '行 ${value.selection.extentIndex + 1}，列 ${value.selection.extentOffset + 1}',
             child: Text(
               'Ln ${value.selection.extentIndex + 1}',
-              style: const TextStyle(fontSize: 10, color: muted),
+              style: TextStyle(
+                fontSize: 10,
+                color: AppPalette.of(context).muted,
+              ),
             ),
           ),
         ),
@@ -145,13 +152,20 @@ class DocumentStatus extends StatelessWidget {
     ),
   );
 
-  Widget _value(String text) => Padding(
+  Widget _value(BuildContext context, String text) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(text, style: const TextStyle(fontSize: 10, color: muted)),
-        const Icon(Icons.arrow_drop_down, size: 14, color: muted),
+        Text(
+          text,
+          style: TextStyle(fontSize: 10, color: AppPalette.of(context).muted),
+        ),
+        Icon(
+          Icons.arrow_drop_down,
+          size: 14,
+          color: AppPalette.of(context).muted,
+        ),
       ],
     ),
   );

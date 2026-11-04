@@ -49,6 +49,28 @@ class CompareSession extends ChangeNotifier {
     _lastResult = resultEditor?.text ?? '';
     _savedResult = output?.text ?? '';
   }
+  AppPalette palette = palettes[ColorTheme.fmergeDark]!;
+
+  void setPalette(AppPalette value) {
+    if (palette == value) return;
+    palette = value;
+    // 只重建显示颜色，保留比较结果、折叠状态、选择及撤销历史。
+    final current = diff;
+    final alignment = mergeAlignment;
+    final branches = branchDiffs;
+    if (current != null) {
+      if (alignment != null && branches != null) {
+        _fullLeft = _branchLayout(branches[0], alignment.localRows, true);
+        _fullRight = _branchLayout(branches[1], alignment.remoteRows, false);
+      } else {
+        _fullLeft = _layout(current, true);
+        _fullRight = _layout(current, false);
+      }
+      _applyLayouts();
+    }
+    updateResultLayout();
+  }
+
   TextFile left, right;
   final TextFile? base;
   TextFile? output;
@@ -566,19 +588,25 @@ class CompareSession extends ChangeNotifier {
         ranges = <int, List<CodeDiffRange>>{};
     for (final (i, row) in diff.changedRows) {
       final line = left ? row.leftLine : row.rightLine;
-      colors[i] = line == null ? bg : (left ? removedBg : addedBg);
+      colors[i] = line == null
+          ? palette.bg
+          : (left ? palette.removedBg : palette.addedBg);
       final marks = left ? row.leftMarks : row.rightMarks;
       if (line != null && marks.isNotEmpty) {
         ranges[line] = [
           for (final m in marks)
-            CodeDiffRange(m.start, m.end, left ? removedInline : addedInline),
+            CodeDiffRange(
+              m.start,
+              m.end,
+              left ? palette.removedInline : palette.addedInline,
+            ),
         ];
       }
     }
     for (final block in diff.movedBlocks) {
       final start = left ? block.leftStart : block.rightStart;
       for (var i = 0; i < block.length; i++) {
-        colors[rows[start + i]] = movedBg;
+        colors[rows[start + i]] = palette.movedBg;
       }
     }
     return CodeDiffLayout(
@@ -601,20 +629,22 @@ class CompareSession extends ChangeNotifier {
     for (final row in branch.rows) {
       final line = row.rightLine;
       if (line == null) continue;
-      if (row.changed) colors[rows[line]] = local ? removedBg : addedBg;
+      if (row.changed) {
+        colors[rows[line]] = local ? palette.removedBg : palette.addedBg;
+      }
       if (row.rightMarks.isEmpty) continue;
       ranges[line] = [
         for (final mark in row.rightMarks)
           CodeDiffRange(
             mark.start,
             mark.end,
-            local ? removedInline : addedInline,
+            local ? palette.removedInline : palette.addedInline,
           ),
       ];
     }
     final realRows = rows.toSet();
     for (var i = 0; i < mergeAlignment!.totalRows; i++) {
-      if (!realRows.contains(i)) colors[i] = bg;
+      if (!realRows.contains(i)) colors[i] = palette.bg;
     }
     return CodeDiffLayout(
       lineRows: rows,
@@ -717,7 +747,7 @@ class CompareSession extends ChangeNotifier {
     final colors = <int, Color>{};
     for (final r in merger!.state.regions) {
       for (var i = r.start; i < r.end && i < length; i++) {
-        colors[i] = r.resolved ? addedBg : const Color(0xff3c3020);
+        colors[i] = r.resolved ? palette.addedBg : palette.conflictBg;
       }
     }
     resultEditor!.diffLayout = CodeDiffLayout(
