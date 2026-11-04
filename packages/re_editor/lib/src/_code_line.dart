@@ -28,6 +28,7 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   late final _CodeLineEditingCache _cache;
   late int _preEditLineIndex;
   CodeLineEditingValue? _preValue;
+  String? _text;
   GlobalKey? _editorKey;
 
   _CodeLineEditingControllerImpl({
@@ -63,6 +64,8 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
 
   @override
   set value(CodeLineEditingValue value) {
+    // 选择、组合区与差异布局变化不需要重新拼接全文；文档更新时再失效。
+    if (!identical(value.codeLines, super.value.codeLines)) _text = null;
     _preValue = super.value;
     super.value = value;
   }
@@ -120,7 +123,7 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   bool get isComposing => composing.end > composing.start;
 
   @override
-  String get text => codeLines.asString(lineBreak);
+  String get text => _text ??= codeLines.asString(lineBreak);
 
   @override
   String get selectedText {

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart' show Color;
 import 'package:re_editor/re_editor.dart';
 
 import 'core/diff.dart';
+import 'core/compare_task.dart';
 import 'core/context_rows.dart';
 import 'core/alignment.dart';
 import 'core/files.dart';
@@ -24,7 +25,8 @@ class CompareSession extends ChangeNotifier {
     this.output,
     this.readOnly = false,
     this.mergeLabels = const MergeLabels(),
-  }) {
+    CompareRunner? compareRunner,
+  }) : _compareRunner = compareRunner ?? _runComparison {
     leftEditor = CodeLineEditingController.fromText(left.text);
     rightEditor = CodeLineEditingController.fromText(right.text);
     if (base != null) {
@@ -69,6 +71,9 @@ class CompareSession extends ChangeNotifier {
   late String _lastLeft, _lastRight, _lastResult, _savedResult;
   late CodeLineSelection _lastLeftSelection, _lastRightSelection;
   Timer? _timer;
+  final CompareRunner _compareRunner;
+  Future<void>? _refreshTask;
+  bool _refreshPending = false;
   var _generation = 0;
   CompareOptions options = const CompareOptions();
   bool showWhitespace = false;
@@ -76,6 +81,7 @@ class CompareSession extends ChangeNotifier {
   int contextLines = 3;
   ContextRows? _context;
   CodeDiffLayout? _fullLeft, _fullRight;
+  final _leftChange = _InputChange(), _rightChange = _InputChange();
 
   void swapSides() {
     if (isMerge || output != null || busy) return;
@@ -183,12 +189,14 @@ class CompareSession extends ChangeNotifier {
 
   int get pending => merger?.pending ?? 0;
   bool get leftDirty =>
-      leftEditor.text != left.text ||
+      _leftChange.changed(leftEditor.text, left.original) ||
       saveEncodings.containsKey(0) ||
       saveEols.containsKey(0);
   bool get rightDirty =>
-      rightEditor.text !=
-          (!isMerge && output != null ? output!.text : right.text) ||
+      _rightChange.changed(
+        rightEditor.text,
+        (!isMerge && output != null ? output! : right).original,
+      ) ||
       saveEncodings.containsKey(1) ||
       saveEols.containsKey(1);
   bool get resultDirty =>
@@ -353,56 +361,86 @@ class CompareSession extends ChangeNotifier {
   }
 
   void schedule() {
+    if (_disposed) return;
     _generation++; // 输入一变化就使旧计算失效，而不是等下一次防抖触发。
     _timer?.cancel();
     _timer = Timer(const Duration(milliseconds: 140), refresh);
   }
 
-  Future<void> refresh([CompareOptions? nextOptions]) async {
-    if (_disposed) return;
+  Future<void> refresh([CompareOptions? nextOptions]) {
+    if (_disposed) return Future<void>.value();
+    _timer?.cancel();
     if (nextOptions != null) options = nextOptions;
-    final generation = ++_generation;
+    ++_generation;
+    _refreshPending = true;
     busy = true;
     error = null;
+    final running = _refreshTask;
+    if (running != null) {
+      notifyListeners();
+      return running;
+    }
+    final completion = Completer<void>();
+    _refreshTask = completion.future;
     notifyListeners();
+    unawaited(_drainRefresh(completion));
+    return completion.future;
+  }
+
+  Future<void> _drainRefresh(Completer<void> completion) async {
     try {
-      final inputs = DiffInput(
-        // 显示忽略换行时无需在主线程执行换行重建；保存仍走文件模型的无损路径。
-        options.ignoreEol ? leftEditor.text : left.materialize(leftEditor.text),
-        options.ignoreEol
-            ? rightEditor.text
-            : right.materialize(rightEditor.text),
-        options,
-      );
-      final result = await compute(compare, inputs);
-      List<DiffDocument>? branches;
-      if (isMerge) {
-        branches = await compute(_compareBranches, (base!.original, inputs));
+      // 等待期间只记录“需要重算”，不捕获文本或再启动 isolate。
+      while (_refreshPending && !_disposed) {
+        _refreshPending = false;
+        _timer?.cancel();
+        final generation = _generation;
+        try {
+          final result = await _compareRunner(
+            CompareTask(
+              left: leftEditor.text,
+              right: rightEditor.text,
+              options: options,
+              leftOriginal: options.ignoreEol ? null : left.original,
+              rightOriginal: options.ignoreEol ? null : right.original,
+              base: base?.original,
+            ),
+          );
+          if (_disposed || generation != _generation) continue;
+          diff = result.diff;
+          _programmatic = true;
+          try {
+            final branches = result.branches;
+            if (branches != null) {
+              mergeAlignment = alignThreeWay(branches[0], branches[1]);
+              _fullLeft = _branchLayout(
+                branches[0],
+                mergeAlignment!.localRows,
+                true,
+              );
+              _fullRight = _branchLayout(
+                branches[1],
+                mergeAlignment!.remoteRows,
+                false,
+              );
+            } else {
+              _fullLeft = _layout(result.diff, true);
+              _fullRight = _layout(result.diff, false);
+            }
+            _applyLayouts();
+          } finally {
+            _programmatic = false;
+          }
+        } catch (e) {
+          if (!_disposed && generation == _generation) error = e.toString();
+        }
       }
-      if (_disposed || generation != _generation) return;
-      diff = result;
-      _programmatic = true;
-      if (branches != null) {
-        mergeAlignment = alignThreeWay(branches[0], branches[1]);
-        _fullLeft = _branchLayout(branches[0], mergeAlignment!.localRows, true);
-        _fullRight = _branchLayout(
-          branches[1],
-          mergeAlignment!.remoteRows,
-          false,
-        );
-      } else {
-        _fullLeft = _layout(result, true);
-        _fullRight = _layout(result, false);
-      }
-      _applyLayouts();
-      _programmatic = false;
-    } catch (e) {
-      if (!_disposed && generation == _generation) error = e.toString();
     } finally {
-      if (!_disposed && generation == _generation) {
+      _refreshTask = null;
+      if (!_disposed) {
         busy = false;
         notifyListeners();
       }
+      completion.complete();
     }
   }
 
@@ -613,7 +651,20 @@ class CompareSession extends ChangeNotifier {
   }
 }
 
-List<DiffDocument> _compareBranches((String, DiffInput) input) => [
-  compare(DiffInput(input.$1, input.$2.left, input.$2.options)),
-  compare(DiffInput(input.$1, input.$2.right, input.$2.options)),
-];
+Future<CompareResult> _runComparison(CompareTask task) =>
+    compute(runCompareTask, task, debugLabel: 'fmerge.compare');
+
+/// 光标移动时复用判断；只有正文或保存基线变化才重新规范化、比较全文。
+class _InputChange {
+  String? _edited, _original;
+  bool _changed = false;
+
+  bool changed(String edited, String original) {
+    if (!identical(edited, _edited) || !identical(original, _original)) {
+      _changed = edited != normalize(original);
+      _edited = edited;
+      _original = original;
+    }
+    return _changed;
+  }
+}
