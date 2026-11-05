@@ -244,6 +244,23 @@ void main() {
       40,
     );
     await snapshot('merge-unresolved');
+    for (final command in ['nextConflict', 'previousConflict']) {
+      expect(
+        find.byKey(ValueKey('command-$command')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(ValueKey('command-$command')));
+      await tester.pumpAndSettle();
+      expect(
+        merge.resultEditor!.selection.extentIndex,
+        merge.merger!.state.regions.first.start,
+      );
+      expect(
+        tester.widgetList<CodePane>(find.byType(CodePane)).last.focus.hasFocus,
+        true,
+      );
+    }
+    await snapshot('merge-navigated');
     await tester.tap(find.byKey(const ValueKey('menu-合并')));
     await tester.pumpAndSettle();
     await snapshot('merge-menu');
@@ -320,6 +337,25 @@ void main() {
     final largePanes = tester
         .widgetList<CodePane>(find.byType(CodePane))
         .toList();
+    await tester.tap(find.byKey(const ValueKey('command-nextDiff')));
+    await tester.pumpAndSettle();
+    debugPrint('STEP: large navigated');
+    expect(large.rightEditor.selection.extentIndex, 450);
+    expect(largePanes.last.focus.hasFocus, true);
+    final centered = largePanes.last.scroll.verticalScroller.offset;
+    largePanes.last.scroll.verticalScroller.jumpTo(centered + 50);
+    await tester.pumpAndSettle();
+    // 同一个差异已可见且光标未变，再次跳转仍须主动居中。
+    await tester.tap(find.byKey(const ValueKey('command-nextDiff')));
+    await tester.pumpAndSettle();
+    expect(
+      largePanes.last.scroll.verticalScroller.offset,
+      closeTo(centered, 1),
+    );
+    expect(
+      largePanes.first.scroll.verticalScroller.offset,
+      closeTo(centered, 1),
+    );
     largePanes.first.scroll.makeVisible(
       const CodeLinePosition(index: 9999, offset: 0),
     );

@@ -692,45 +692,63 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       final regions = s.merger!.state.regions;
       if (regions.isEmpty) return;
       setState(() => _conflict = (_conflict + step) % regions.length);
-      s.resultEditor!.selection = CodeLineSelection.collapsed(
-        index: regions[_conflict].start.clamp(0, s.resultEditor!.lineCount - 1),
-        offset: 0,
-      );
-      _resultScroll.makeVisible(
-        CodeLinePosition(
-          index: regions[_conflict].start.clamp(
-            0,
-            s.resultEditor!.lineCount - 1,
-          ),
-          offset: 0,
-        ),
-      );
-      _resultFocus.requestFocus();
+      _centerNavigation(2, regions[_conflict].start);
       return;
     }
     final rows = s.hunkRows;
     if (rows.isEmpty) return;
     setState(() => _hunk = (_hunk + step) % rows.length);
     final row = rows[_hunk];
-    final leftRows = s.leftEditor.diffLayout?.lineRows ?? const <int>[];
-    final rightRows = s.rightEditor.diffLayout?.lineRows ?? const <int>[];
-    final a = leftRows.indexWhere((r) => r >= row),
-        b = rightRows.indexWhere((r) => r >= row);
-    if (b >= 0 && (a < 0 || rightRows[b] < leftRows[a])) {
-      _rightScroll.makeVisible(
-        CodeLinePosition(
-          index: b.clamp(0, s.rightEditor.lineCount - 1),
-          offset: 0,
-        ),
-      );
-    } else if (a >= 0) {
-      _leftScroll.makeVisible(
-        CodeLinePosition(
-          index: a.clamp(0, s.leftEditor.lineCount - 1),
-          offset: 0,
-        ),
-      );
+    final a = lineAtRow(s.leftEditor.diffLayout?.lineRows ?? const [], row);
+    final b = lineAtRow(s.rightEditor.diffLayout?.lineRows ?? const [], row);
+    // 优先保留当前输入栏；纯插入/删除切到确有文本的一侧，不定位虚拟占位。
+    if (a != null && (_active == 0 || b == null)) {
+      _centerNavigation(0, a);
+    } else if (b != null) {
+      _centerNavigation(1, b);
+    } else {
+      // 三方双方共同删除时，两侧均是占位；用后继真实行（或文末）标明删除位置。
+      final side = _active == 0 ? 0 : 1;
+      final controller = side == 0 ? s.leftEditor : s.rightEditor;
+      final after =
+          controller.diffLayout?.lineRows.indexWhere((r) => r > row) ?? -1;
+      _centerNavigation(side, after < 0 ? controller.lineCount - 1 : after);
     }
+  }
+
+  void _centerNavigation(int side, int line) {
+    final s = session!;
+    final controller = side == 0
+        ? s.leftEditor
+        : side == 1
+        ? s.rightEditor
+        : s.resultEditor!;
+    final scroll = side == 0
+        ? _leftScroll
+        : side == 1
+        ? _rightScroll
+        : _resultScroll;
+    final focus = side == 0
+        ? _leftFocus
+        : side == 1
+        ? _rightFocus
+        : _resultFocus;
+    final target = line.clamp(0, controller.lineCount - 1);
+    controller.selection = CodeLineSelection.collapsed(
+      index: target,
+      offset: 0,
+    );
+    focus.requestFocus();
+    // 选择可能更新折叠/换行布局；布局完成后居中，避免被光标的自动滚动覆盖。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !identical(session, s) ||
+          controller.selection.extentIndex != target ||
+          controller.selection.extentOffset != 0) {
+        return;
+      }
+      scroll.makeCenter(CodeLinePosition(index: target, offset: 0));
+    });
   }
 
   void _swapSides() {
@@ -1350,11 +1368,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           command(AppCommand.previousInlineDiff),
           command(AppCommand.nextInlineDiff),
         ],
-        if (s?.isMerge == true)
-          [
-            command(AppCommand.previousConflict),
-            command(AppCommand.nextConflict),
-          ],
+        [
+          command(AppCommand.previousConflict),
+          command(AppCommand.nextConflict),
+        ],
       ]),
       _WorkbenchMenu(s?.isMerge == true ? '合并' : '比较', [
         if (s?.isMerge == true) ...[
@@ -1673,20 +1690,19 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           '下一处',
           0,
         ),
-        if (s.isMerge) ...[
-          const _QuickAction(
-            AppCommand.previousConflict,
-            Icons.skip_previous,
-            '上一处冲突',
-            1,
-          ),
-          const _QuickAction(
-            AppCommand.nextConflict,
-            Icons.skip_next,
-            '下一处冲突',
-            1,
-          ),
-        ] else ...[
+        _QuickAction(
+          AppCommand.previousConflict,
+          Icons.keyboard_double_arrow_up,
+          '上一冲突',
+          s.isMerge ? 0 : 4,
+        ),
+        _QuickAction(
+          AppCommand.nextConflict,
+          Icons.keyboard_double_arrow_down,
+          '下一冲突',
+          s.isMerge ? 0 : 4,
+        ),
+        if (!s.isMerge) ...[
           const _QuickAction(
             AppCommand.takeLeft,
             Icons.arrow_forward,
@@ -1733,7 +1749,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           selected: settings.showWhitespace,
         ),
       ],
-      const _QuickAction(AppCommand.settings, Icons.tune, '设置', 0),
+      const _QuickAction(AppCommand.settings, Icons.settings_outlined, '设置', 0),
     ];
     return LayoutBuilder(
       builder: (context, constraints) {

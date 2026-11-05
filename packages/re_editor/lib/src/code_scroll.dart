@@ -19,6 +19,11 @@ class CodeScrollController {
     _render?.makePositionCenterIfInvisible(position);
   }
 
+  /// 主动导航时始终将目标行居中，不受其是否已在视口内影响。
+  void makeCenter(CodeLinePosition position) {
+    _render?.makePositionCenterIfInvisible(position, force: true);
+  }
+
   void makeVisible(CodeLinePosition position) {
     _render?.makePositionVisible(position);
   }

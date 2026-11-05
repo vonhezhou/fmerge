@@ -288,7 +288,9 @@ class _CodePaneState extends State<CodePane> {
         backgroundColor: AppPalette.of(context).panel,
         cursorColor: AppPalette.of(context).accent,
         selectionColor: AppPalette.of(context).selection,
-        cursorLineColor: AppPalette.of(context).border,
+        cursorLineColor: focus.hasFocus
+            ? AppPalette.of(context).accent.withValues(alpha: .5)
+            : AppPalette.of(context).border,
         codeTheme: !settings.highlight || !_languages.containsKey(language)
             ? null
             : CodeHighlightTheme(

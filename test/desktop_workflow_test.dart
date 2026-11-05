@@ -119,6 +119,127 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final merge in [false, true]) {
+    desktopTest('${merge ? '冲突' : '差异'}跳转将已可见目标居中并移动光标与焦点', (tester) async {
+      tester.view.physicalSize = const Size(920, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final lines = List.generate(100, (i) => 'line $i');
+      final left = [...lines], right = [...lines];
+      for (final line in [30, 34, 70]) {
+        left[line] = 'left $line';
+        right[line] = 'right $line';
+      }
+      final s = CompareSession(
+        TextFile.empty(left.join('\n')),
+        TextFile.empty(right.join('\n')),
+        base: merge ? TextFile.empty(lines.join('\n')) : null,
+      );
+      await tester.pumpWidget(
+        FmergeApp(settings: Settings(persist: false), initial: s),
+      );
+      await waitUntil(tester, () => !s.busy);
+      final pane = tester.widgetList<CodePane>(find.byType(CodePane)).last;
+      final position = pane.scroll.verticalScroller.position;
+      final rows = pane.controller.diffLayout!.totalRows;
+      final editor = tester
+          .widgetList<CodeEditor>(find.byType(CodeEditor))
+          .last;
+      final padding = editor.padding!.resolve(TextDirection.ltr);
+      final lineHeight =
+          (position.maxScrollExtent +
+              position.viewportDimension -
+              padding.vertical) /
+          rows;
+      final firstScroll =
+          (34 * lineHeight + padding.top - position.viewportDimension * .7)
+              .clamp(0.0, position.maxScrollExtent);
+      pane.scroll.verticalScroller.jumpTo(firstScroll);
+      await tester.pumpAndSettle();
+      final before = position.pixels;
+      final command = merge ? 'nextConflict' : 'nextDiff';
+      expect(
+        find.byKey(ValueKey('command-$command')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(ValueKey('command-$command')));
+      await tester.pumpAndSettle();
+      expect(pane.controller.selection.extentIndex, 34);
+      expect(pane.focus.hasFocus, true);
+      expect(position.pixels, isNot(closeTo(before, 1)));
+      void expectCentered(int line) {
+        final row = pane.controller.diffLayout!.lineRows[line];
+        expect(
+          padding.top + (row + .5) * lineHeight - position.pixels,
+          closeTo(position.viewportDimension / 2, 1),
+        );
+      }
+
+      expectCentered(34);
+      await tester.tap(find.byKey(ValueKey('command-$command')));
+      await tester.pumpAndSettle();
+      expect(pane.controller.selection.extentIndex, 70);
+      expectCentered(70);
+      await tester.tap(
+        find.byKey(
+          ValueKey('command-${merge ? 'previousConflict' : 'previousDiff'}'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(pane.controller.selection.extentIndex, 34);
+      expectCentered(34);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final deletion in [false, true]) {
+    desktopTest('纯${deletion ? '删除' : '插入'}差异导航切到有真实文本的一侧', (tester) async {
+      final full = TextFile.empty('header\nchanged\nend');
+      final short = TextFile.empty('header\nend');
+      final s = CompareSession(
+        deletion ? full : short,
+        deletion ? short : full,
+      );
+      await tester.pumpWidget(
+        FmergeApp(settings: Settings(persist: false), initial: s),
+      );
+      await waitUntil(tester, () => !s.busy);
+      final panes = tester.widgetList<CodePane>(find.byType(CodePane)).toList();
+      panes[deletion ? 1 : 0].focus.requestFocus();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('command-nextDiff')));
+      await tester.pumpAndSettle();
+      final target = panes[deletion ? 0 : 1];
+      expect(target.focus.hasFocus, true);
+      expect(target.controller.selection.extentIndex, 1);
+      expect(full.text, 'header\nchanged\nend');
+      expect(short.text, 'header\nend');
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  desktopTest('三方共同删除的差异定位到相邻真实行，不停在虚拟占位', (tester) async {
+    final s = CompareSession(
+      TextFile.empty('a\nend'),
+      TextFile.empty('a\nend'),
+      base: TextFile.empty('a\nremoved\nend'),
+    );
+    await tester.pumpWidget(
+      FmergeApp(settings: Settings(persist: false), initial: s),
+    );
+    await waitUntil(tester, () => !s.busy);
+    expect(s.hunkRows, isNotEmpty);
+    await tester.tap(find.byKey(const ValueKey('command-nextDiff')));
+    await tester.pumpAndSettle();
+    final target = tester
+        .widgetList<CodePane>(find.byType(CodePane))
+        .elementAt(1);
+    expect(target.focus.hasFocus, true);
+    expect(target.controller.selection.extentIndex, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final pair in [true, false]) {
     desktopTest('直接选择${pair ? '两个' : '一个后继续选择另一个'}文件，取消第二次选择不替换当前内容', (
       tester,

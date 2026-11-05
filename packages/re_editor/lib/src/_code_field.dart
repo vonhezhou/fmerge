@@ -694,7 +694,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
   }
 
-  void makePositionCenterIfInvisible(CodeLinePosition position, {int tryCount = 0, bool animated = false}) {
+  void makePositionCenterIfInvisible(CodeLinePosition position, {int tryCount = 0, bool animated = false, bool force = false}) {
     void scrollViewport(ViewportOffset viewport, num target) {
       if (animated) {
         viewport.animateTo(target.toDouble(), duration: positionCenteringDuration, curve: Curves.decelerate);
@@ -706,7 +706,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     final Offset? offset = calculateTextPositionViewportOffset(position);
     if (offset == null) {
       if (_diffLayout != null && position.index < _diffLayout!.lineRows.length) {
-        final target = max(0.0, _rowStart(_diffLayout!.lineRows[position.index]) * _preferredLineHeight - size.height / 2);
+        final target = max(0.0, _rowStart(_diffLayout!.lineRows[position.index]) * _preferredLineHeight + (force ? paddingTop + _preferredLineHeight / 2 : 0) - size.height / 2);
         scrollViewport(_verticalViewport, target.clamp(0, _verticalViewportSize ?? target));
         return;
       }
@@ -732,12 +732,15 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
           if (viewport is ScrollPosition && viewport.context.notificationContext == null) {
             return;
           }
-          makePositionCenterIfInvisible(position, tryCount: tryCount + 1);
+          makePositionCenterIfInvisible(position, tryCount: tryCount + 1, animated: animated, force: force);
         });
       }
       return;
     }
-    if (offset.dy < paddingTop) {
+    if (force) {
+      final target = _verticalViewport.pixels + offset.dy + _preferredLineHeight / 2 - size.height / 2;
+      scrollViewport(_verticalViewport, target.clamp(0, _verticalViewportSize ?? 0));
+    } else if (offset.dy < paddingTop) {
       final double target = max(0, _verticalViewport.pixels + offset.dy - size.height / 2);
       scrollViewport(_verticalViewport, target);
     } else if (offset.dy > size.height - _preferredLineHeight - paddingBottom) {

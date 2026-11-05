@@ -11,3 +11,5 @@
 文档、剪贴板、输入法、选择与撤销仍使用上游真实文本模型，虚拟占位不进入字符串。
 
 验收入口：test/editable_diff_test.dart、test/context_rows_test.dart、test/workbench_test.dart 与 integration_test/desktop_test.dart。自动换行、语法折叠、极长行及 IME 的进一步人工验收不能由这些基础用例替代。
+
+- code_scroll.dart / _code_field.dart：新增 `makeCenter` 主动导航接口，即使目标行已可见也居中；保留原有“不可见时才居中”的编辑器行为，复用换行和差异对齐坐标并限制在有效滚动范围。
