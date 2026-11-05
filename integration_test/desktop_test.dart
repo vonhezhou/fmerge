@@ -261,6 +261,10 @@ void main() {
       expect(
         tester.widgetList<CodePane>(find.byType(CodePane)).last.focus.hasFocus,
         true,
+        reason:
+            '$command：primaryFocus=${FocusManager.instance.primaryFocus}，'
+            'windowFocused=${await windowManager.isFocused()}，'
+            'panes=${tester.widgetList<CodePane>(find.byType(CodePane)).map((pane) => '${pane.focus.hasFocus}/${pane.focus.canRequestFocus}').join(',')}',
       );
     }
     await snapshot('merge-navigated');

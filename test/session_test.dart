@@ -56,6 +56,36 @@ void main() {
     expect(session.resultDirty, true);
     expect(session.toolExitCode, 1);
   });
+  for (final toRight in [true, false]) {
+    for (final inserted in [true, false]) {
+      test(
+        '防抖期间${inserted ? '插入' : '删除'}行后拒绝采用过期${toRight ? '左' : '右'}侧区块',
+        () async {
+          final session = CompareSession(
+            TextFile.empty('head\nLEFT\ntail'),
+            TextFile.empty('head\nRIGHT\ntail'),
+          );
+          addTearDown(session.dispose);
+          await session.refresh();
+          final target = toRight ? session.rightEditor : session.leftEditor;
+          final edited = inserted
+              ? 'new\n${target.text}'
+              : target.text.substring('head\n'.length);
+          target.text = edited;
+          expect(session.comparisonCurrent, false);
+          expect(session.busy, false);
+          for (final combine in [0, 1, 2]) {
+            session.applyHunk(0, toRight: toRight, combine: combine);
+            expect(target.text, edited);
+          }
+          await session.refresh();
+          expect(session.comparisonCurrent, true);
+          session.applyHunk(session.diff!.changes.length - 1, toRight: toRight);
+          expect(target.text, contains(toRight ? 'LEFT' : 'RIGHT'));
+        },
+      );
+    }
+  }
   test('手工确认冲突不重置光标', () {
     final session = CompareSession(
       TextFile.empty('L\nnext'),

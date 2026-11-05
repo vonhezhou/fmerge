@@ -27,4 +27,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - LICENSE
     - THIRD_PARTY_NOTICES.md

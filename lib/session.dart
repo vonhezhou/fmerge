@@ -692,7 +692,7 @@ class CompareSession extends ChangeNotifier {
         diff == null ||
         hunk < 0 ||
         hunk >= diff!.changes.length ||
-        busy) {
+        !comparisonCurrent) {
       return;
     }
     final c = diff!.changes[hunk];

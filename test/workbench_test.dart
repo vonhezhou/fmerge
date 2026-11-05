@@ -8,6 +8,7 @@ import 'package:fmerge/session.dart';
 import 'package:fmerge/core/files.dart';
 import 'package:fmerge/core/settings.dart';
 import 'package:fmerge/core/merge_labels.dart';
+import 'package:fmerge/core/merge.dart';
 import 'package:fmerge/ui/code_pane.dart';
 import 'package:fmerge/ui/workbench.dart';
 import 'package:fmerge/ui/toolbar_action.dart';
@@ -483,6 +484,71 @@ void main() {
     await tester.pumpAndSettle();
     expect(file.readAsStringSync(), 'external');
   });
+  for (final command in ['close', 'open']) {
+    testWidgets('${command == 'close' ? '关闭' : '打开文件'}时保存期间的新输入阻止离开，再次保存后可离开', (
+      tester,
+    ) async {
+      final dir = Directory.systemTemp.createTempSync('fmerge-leave-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final previous = FileSelectorPlatform.instance;
+      final picker = _Picker();
+      FileSelectorPlatform.instance = picker;
+      addTearDown(() => FileSelectorPlatform.instance = previous);
+      final s = _EditDuringSave('${dir.path}/out');
+      s.choose(s.merger!.state.regions.single.chunk.id, MergeChoice.left);
+      int? code;
+      await tester.pumpWidget(
+        FmergeApp(
+          settings: Settings(persist: false),
+          initial: s,
+          onExit: (value) => code = value,
+        ),
+      );
+      await ready(tester);
+      Future<void> leaveAndSave() async {
+        await chooseMenuCommand(tester, command, menu: '文件');
+        expect(find.text('有尚未保存的修改'), findsOneWidget);
+        await tester.runAsync(() async {
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await tester.pump();
+          final deadline = DateTime.now().add(const Duration(seconds: 5));
+          while (find
+                  .byKey(const ValueKey('command-save'))
+                  .evaluate()
+                  .isNotEmpty &&
+              tester
+                      .widget<ToolbarAction>(
+                        find.byKey(const ValueKey('command-save')),
+                      )
+                      .icon ==
+                  Icons.hourglass_empty) {
+            if (DateTime.now().isAfter(deadline)) fail('等待保存完成超时');
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+            await tester.pump();
+          }
+        });
+        await tester.pumpAndSettle();
+      }
+
+      await leaveAndSave();
+      expect(s.savedMerge, true);
+      expect(File('${dir.path}/out').readAsStringSync(), 'L');
+      expect(s.resultEditor!.text, 'new edit while saving');
+      expect(s.resultDirty, true);
+      expect(code, isNull);
+      expect(picker.calls, 0);
+      s.editDuringSave = false;
+      await leaveAndSave();
+      expect(
+        File('${dir.path}/out').readAsStringSync(),
+        'new edit while saving',
+      );
+      expect(s.dirty, false);
+      expect(code, command == 'close' ? 0 : isNull);
+      expect(picker.calls, command == 'open' ? 1 : 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('未解决冲突无法保存，取消关闭不丢失结果', (tester) async {
     int? code;
     final s = CompareSession(
@@ -525,5 +591,38 @@ class _Picker extends FileSelectorPlatform {
   }) async {
     calls++;
     return [];
+  }
+}
+
+// 使用真实保存，在快照提交后、异步写入完成前注入下一次输入。
+class _EditDuringSave extends CompareSession {
+  _EditDuringSave(String path)
+    : super(
+        TextFile.empty('L'),
+        TextFile.empty('R'),
+        base: TextFile.empty('B'),
+        output: TextFile.empty()..path = path,
+      );
+  bool editDuringSave = true;
+
+  @override
+  Future<void> saveResult({
+    String? destination,
+    bool backup = true,
+    bool force = false,
+    TextEncoding? encoding,
+    String? eol,
+    bool usePendingFormat = true,
+  }) async {
+    final saving = super.saveResult(
+      destination: destination,
+      backup: backup,
+      force: force,
+      encoding: encoding,
+      eol: eol,
+      usePendingFormat: usePendingFormat,
+    );
+    if (editDuringSave) resultEditor!.text = 'new edit while saving';
+    await saving;
   }
 }

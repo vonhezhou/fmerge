@@ -301,9 +301,17 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     );
     if (choice == 'discard') return true;
     if (choice != 'save') return false;
-    if (session!.isMerge) return _save();
-    if (session!.leftDirty && !await _save(side: 0)) return false;
-    if (session!.rightDirty && !await _save(side: 1)) return false;
+    if (session!.isMerge) {
+      if (!await _save()) return false;
+    } else {
+      if (session!.leftDirty && !await _save(side: 0)) return false;
+      if (session!.rightDirty && !await _save(side: 1)) return false;
+    }
+    // 保存只提交调用时的快照；期间的新输入仍需留在当前会话。
+    if (session!.dirty) {
+      _message('保存期间有新的修改，请保存后再离开');
+      return false;
+    }
     return true;
   }
 
@@ -1041,7 +1049,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         s != null &&
             !s.isMerge &&
             !s.readOnly &&
-            !s.busy &&
+            s.comparisonCurrent &&
             s.diff?.changes.isNotEmpty == true &&
             (command != AppCommand.takeRight || _leftEditable),
       AppCommand.toggleLeftEdit => s != null && !s.isMerge && !s.readOnly,
