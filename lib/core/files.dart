@@ -50,6 +50,9 @@ class TextFile {
 
   static Future<TextFile> _read(String path, TextEncoding? encoding) async {
     final file = File(path);
+    // 后续会整份读取、解码，并为多侧文本建立编辑器、比较结果及历史；
+    // 实际内存可能远大于文件字节数。读取前限制规模，避免超大输入耗尽资源。
+    // 32 MiB 是保守保护阈值，不是流畅性保证；放宽前需验证完整应用的耗时与峰值内存。
     if (await file.length() > 32 * 1024 * 1024) {
       throw const FormatException('文本文件超过 32 MiB，暂不支持打开');
     }

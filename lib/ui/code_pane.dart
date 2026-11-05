@@ -297,6 +297,9 @@ class _CodePaneState extends State<CodePane> {
                 languages: {
                   language: CodeHighlightThemeMode(
                     mode: _languages[language]!,
+                    // 按 UTF-16 代码单元计数，并非文件字节数。高亮仍需全文解析和
+                    // 构建逐行结果，后台执行不会消除 CPU 与内存成本；超限改用纯文本，
+                    // 保留差异标记、编辑和保存。放宽前需单独测量开启高亮的表现。
                     maxSize: 4 * 1024 * 1024,
                     maxLineLength: 32000,
                   ),
