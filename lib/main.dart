@@ -8,7 +8,6 @@ import 'core/access.dart';
 import 'core/settings.dart';
 import 'session.dart';
 import 'ui/workbench.dart';
-import 'palette.dart';
 import 'ui/app_theme.dart';
 
 Future<void> main(List<String> args) async {
@@ -70,14 +69,16 @@ Future<void> main(List<String> args) async {
       settings.themeMode == ThemeMode.light ||
       (settings.themeMode == ThemeMode.system &&
           platformBrightness == Brightness.light);
-  final startupTheme = useLight ? settings.lightTheme : settings.darkTheme;
+  final startupPalette = settings.paletteFor(
+    useLight ? Brightness.light : Brightness.dark,
+  );
   await windowManager.waitUntilReadyToShow(
     WindowOptions(
       size: const Size(1200, 800),
       minimumSize: const Size(920, 680),
       center: true,
       title: 'fmerge',
-      backgroundColor: palettes[startupTheme]!.bg,
+      backgroundColor: startupPalette.bg,
     ),
     () async {
       await windowManager.show();
@@ -108,8 +109,8 @@ class FmergeApp extends StatelessWidget {
     builder: (context, _) => MaterialApp(
       title: 'fmerge',
       debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(palette: palettes[settings.lightTheme]),
-      darkTheme: buildAppTheme(palette: palettes[settings.darkTheme]),
+      theme: buildAppTheme(palette: settings.paletteFor(Brightness.light)),
+      darkTheme: buildAppTheme(palette: settings.paletteFor(Brightness.dark)),
       themeMode: settings.themeMode,
       // 差异布局在颜色切换时立即重建，避免动画期间语义色与布局色不一致。
       themeAnimationDuration: Duration.zero,

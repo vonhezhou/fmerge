@@ -97,6 +97,36 @@ void main() {
       expect(session.rightEditor.canUndo, isTrue);
       expect(tester.takeException(), isNull);
     }
+    final custom = settings.saveCustomTheme(
+      name: '自定义夜色',
+      base: ColorTheme.tokyoNight,
+      colors: {
+        'bg': const Color(0xff112233),
+        'keyword': const Color(0xffff8800),
+        'removedBg': const Color(0xff331122),
+      },
+    );
+    await tester.pumpAndSettle();
+    expect(session.palette, same(custom.palette));
+    expect(
+      session.leftEditor.diffLayout!.rowColors.values,
+      contains(const Color(0xff331122)),
+    );
+    expect(
+      tester
+          .widget<CodeEditor>(find.byType(CodeEditor).first)
+          .style!
+          .codeTheme!
+          .theme['keyword']!
+          .color,
+      const Color(0xffff8800),
+    );
+    expect(session.diff, same(diff));
+    expect(session.rightEditor.text, text);
+    expect(session.rightEditor.selection, selection);
+    expect(session.rightEditor.canUndo, true);
+    settings.deleteCustomTheme(custom.id);
+    await tester.pumpAndSettle();
     settings.setAppearance(mode: ThemeMode.system);
     platform.platformBrightnessTestValue = Brightness.light;
     await tester.pumpAndSettle();

@@ -45,6 +45,34 @@ Windows / Linux 已生成原生 runner 和 CI 构建入口，但本机没有完�
 
 “设置 → 编辑器与外观”支持跟随系统、亮色、暗色模式，亮暗主题分别保存。内置 GitHub Light、GitHub Dark、Tokyo Night 和原有 fmerge Dark；切换时即时更新界面、语法高亮、差异底色、行内标记和概览条，保留文本与撤销历史。偏好跨启动恢复。
 
+每个亮色/暗色主题下的“自定义”可从当前配色创建主题，配置名称及界面、差异、语法高亮共 24 项颜色，并查看代码和差异预览；保存后应用，取消不改动当前主题。自定义主题支持编辑、另存为新主题和删除，删除后回到原先的内置选择。亮暗主题分别保存，预览另一种外观时可切换对应模式。
+
+“导出”可将内置或自定义主题保存为 `.fmerge-theme.json`；“导入主题 JSON”读取 fmerge 版本 1 的主题格式（不是 Zed/VS Code 原生主题文件）。同名导入自动追加编号，不覆盖已有主题；无效格式、未知颜色字段或超过 1 MB 的文件会显示错误并保留现有设置。导出包含完整颜色快照，手写文件可以只覆盖部分颜色，其余继承 `base`：
+
+```json
+{
+  "format": "fmerge-theme",
+  "version": 1,
+  "name": "我的夜色",
+  "base": "tokyoNight",
+  "colors": {
+    "bg": "#151820",
+    "panel": "#1b2030",
+    "accent": "#80b0ff",
+    "keyword": "#c5a0ff",
+    "selection": "#80b0ff40"
+  }
+}
+```
+
+`base` 支持 `githubLight`、`githubDark`、`tokyoNight`、`fmergeDark`，决定主题的亮暗类型。颜色使用 `#RRGGBB` 或 `#RRGGBBAA`，末两位是透明度。完整字段可从任一内置主题导出后查看：
+
+| 分组 | 颜色字段 |
+| --- | --- |
+| 界面 | `bg`、`panel`、`elevated`、`border`、`muted`、`ink`、`accent`、`green`、`red`、`amber` |
+| 差异与选择 | `addedBg`、`removedBg`、`addedInline`、`removedInline`、`movedBg`、`movedInk`、`conflictBg`、`selection` |
+| 语法高亮 | `keyword`、`string`、`number`、`comment`、`title`、`meta` |
+
 设置按比较、编辑器与外观、快捷键、Git 集成、文件与权限分组。点击“快捷键”中的键位可录制新组合，支持冲突提示、清除绑定和恢复默认；应用菜单、工具栏提示、编辑器和实际按键使用同一配置。普通文字键需搭配修饰键，功能键可单独使用。
 
 常用默认键（⌘ 表示 macOS，其他平台使用 Ctrl）：

@@ -8,6 +8,7 @@ import '../core/diff.dart' show InlineDiffMode;
 import '../palette.dart';
 import 'git_settings.dart';
 import 'shortcut_settings.dart';
+import 'theme_settings.dart';
 
 enum SettingsSection { comparison, editor, shortcuts, git, files }
 
@@ -473,92 +474,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
       ]),
     ],
   );
-  Widget _appearance() => _card([
-    Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('外观模式', style: TextStyle(fontSize: 13)),
-          const SizedBox(height: 12),
-          SegmentedButton<ThemeMode>(
-            segments: const [
-              ButtonSegment(
-                value: ThemeMode.system,
-                icon: Icon(Icons.brightness_auto),
-                label: Text('跟随系统'),
-              ),
-              ButtonSegment(
-                value: ThemeMode.light,
-                icon: Icon(Icons.light_mode_outlined),
-                label: Text('亮色'),
-              ),
-              ButtonSegment(
-                value: ThemeMode.dark,
-                icon: Icon(Icons.dark_mode_outlined),
-                label: Text('暗色'),
-              ),
-            ],
-            selected: {s.themeMode},
-            onSelectionChanged: (value) =>
-                setState(() => s.setAppearance(mode: value.single)),
-          ),
-          const SizedBox(height: 18),
-          _themeChoice('亮色主题', Brightness.light, s.lightTheme),
-          const SizedBox(height: 14),
-          _themeChoice('暗色主题', Brightness.dark, s.darkTheme),
-          const SizedBox(height: 12),
-          Text(
-            '即时预览界面、语法高亮与差异配色；亮暗主题分别记住。',
-            style: TextStyle(fontSize: 11, color: AppPalette.of(context).muted),
-          ),
-        ],
-      ),
-    ),
-  ]);
-
-  Widget _themeChoice(
-    String label,
-    Brightness brightness,
-    ColorTheme selected,
-  ) => DropdownButtonFormField<ColorTheme>(
-    key: ValueKey('theme-${brightness.name}'),
-    initialValue: selected,
-    decoration: InputDecoration(labelText: label),
-    items: [
-      for (final theme in ColorTheme.values.where(
-        (t) => t.brightness == brightness,
-      ))
-        DropdownMenuItem(
-          value: theme,
-          child: Row(
-            children: [
-              for (final color in [
-                palettes[theme]!.bg,
-                palettes[theme]!.accent,
-                palettes[theme]!.green,
-                palettes[theme]!.red,
-              ])
-                Container(
-                  width: 12,
-                  height: 12,
-                  margin: const EdgeInsets.only(right: 4),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(3),
-                    border: Border.all(color: AppPalette.of(context).border),
-                  ),
-                ),
-              const SizedBox(width: 6),
-              Text(theme.label, style: const TextStyle(fontSize: 12)),
-            ],
-          ),
-        ),
-    ],
-    onChanged: (theme) {
-      if (theme != null) setState(() => s.setAppearance(theme: theme));
-    },
-  );
+  Widget _appearance() => _card([ThemeSettings(settings: s)]);
 
   Widget _files() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:characters/characters.dart';
 import 'package:flutter/material.dart'
-    show ChangeNotifier, ThemeMode, Brightness;
+    show ChangeNotifier, ThemeMode, Brightness, Color;
 
-import '../palette.dart' show ColorTheme;
+import '../palette.dart';
+import 'custom_theme.dart';
 import 'diff.dart';
 import 'shortcuts.dart';
 
@@ -17,13 +19,113 @@ class Settings extends ChangeNotifier {
   ColorTheme lightTheme = ColorTheme.githubLight;
   ColorTheme darkTheme = ColorTheme.fmergeDark;
 
+  final List<CustomTheme> _customThemes = [];
+  List<CustomTheme> get customThemes => List.unmodifiable(_customThemes);
+  String? lightCustomThemeId, darkCustomThemeId;
+
+  CustomTheme? customThemeFor(Brightness brightness) {
+    final id = brightness == Brightness.light
+        ? lightCustomThemeId
+        : darkCustomThemeId;
+    return _customThemes
+        .where((theme) => theme.id == id && theme.base.brightness == brightness)
+        .firstOrNull;
+  }
+
+  AppPalette paletteFor(Brightness brightness) =>
+      customThemeFor(brightness)?.palette ??
+      palettes[brightness == Brightness.light ? lightTheme : darkTheme]!;
+
+  String selectedThemeId(Brightness brightness) =>
+      customThemeFor(brightness)?.id ??
+      (brightness == Brightness.light ? lightTheme : darkTheme).name;
+
+  void selectTheme(String id, Brightness brightness) {
+    final builtin = ColorTheme.values
+        .where((t) => t.name == id && t.brightness == brightness)
+        .firstOrNull;
+    if (builtin != null) {
+      setAppearance(theme: builtin);
+      return;
+    }
+    final custom = _customThemes
+        .where((t) => t.id == id && t.base.brightness == brightness)
+        .firstOrNull;
+    if (custom == null) throw const FormatException('主题不存在或亮暗类型不匹配');
+    if (brightness == Brightness.light) {
+      lightCustomThemeId = id;
+    } else {
+      darkCustomThemeId = id;
+    }
+    notifyListeners();
+  }
+
+  String get _nextThemeId {
+    var number = 1;
+    while (_customThemes.any((theme) => theme.id == 'custom-$number')) {
+      number++;
+    }
+    return 'custom-$number';
+  }
+
+  CustomTheme saveCustomTheme({
+    String? id,
+    required String name,
+    required ColorTheme base,
+    required Map<String, Color> colors,
+  }) {
+    final original = id == null
+        ? -1
+        : _customThemes.indexWhere((theme) => theme.id == id);
+    if (id != null && original < 0) throw const FormatException('自定义主题不存在');
+    final clean = CustomTheme.validateName(name);
+    var unique = clean, suffix = 2;
+    while (_customThemes.any((t) => t.id != id && t.name == unique)) {
+      final ending = ' ($suffix)';
+      unique = '${clean.characters.take(80 - ending.length)}$ending';
+      suffix++;
+    }
+    final theme = CustomTheme(
+      id: id ?? _nextThemeId,
+      name: unique,
+      base: base,
+      colors: colors,
+    );
+    if (original < 0) {
+      _customThemes.add(theme);
+    } else {
+      _customThemes[original] = theme;
+    }
+    selectTheme(theme.id, base.brightness);
+    return theme;
+  }
+
+  CustomTheme importTheme(String contents) {
+    // 完整解析通过后才写入设置；导入文件不携带本机主题标识。
+    final draft = CustomTheme.decode(contents, id: '');
+    return saveCustomTheme(
+      name: draft.name,
+      base: draft.base,
+      colors: draft.colors,
+    );
+  }
+
+  void deleteCustomTheme(String id) {
+    _customThemes.removeWhere((theme) => theme.id == id);
+    if (lightCustomThemeId == id) lightCustomThemeId = null;
+    if (darkCustomThemeId == id) darkCustomThemeId = null;
+    notifyListeners();
+  }
+
   void setAppearance({ThemeMode? mode, ColorTheme? theme}) {
     if (mode != null) themeMode = mode;
     if (theme != null) {
       if (theme.brightness == Brightness.light) {
         lightTheme = theme;
+        lightCustomThemeId = null;
       } else {
         darkTheme = theme;
+        darkCustomThemeId = null;
       }
     }
     notifyListeners();
@@ -94,6 +196,32 @@ class Settings extends ChangeNotifier {
         ThemeMode.system;
     lightTheme = ColorTheme.read(json['lightTheme'], Brightness.light);
     darkTheme = ColorTheme.read(json['darkTheme'], Brightness.dark);
+    _customThemes.clear();
+    final savedThemes = json['customThemes'];
+    if (savedThemes is List) {
+      for (final raw in savedThemes) {
+        try {
+          if (raw is! Map<String, dynamic> ||
+              raw['id'] is! String ||
+              !RegExp(r'^custom-[1-9][0-9]*$').hasMatch(raw['id'] as String) ||
+              _customThemes.any((theme) => theme.id == raw['id'])) {
+            continue;
+          }
+          _customThemes.add(CustomTheme.fromJson(raw, id: raw['id'] as String));
+        } on FormatException {
+          // 单个主题损坏时保留其他主题和偏好。
+        }
+      }
+    }
+    lightCustomThemeId = json['lightCustomThemeId'] is String
+        ? json['lightCustomThemeId'] as String
+        : null;
+    darkCustomThemeId = json['darkCustomThemeId'] is String
+        ? json['darkCustomThemeId'] as String
+        : null;
+    if (customThemeFor(Brightness.light) == null) lightCustomThemeId = null;
+    if (customThemeFor(Brightness.dark) == null) darkCustomThemeId = null;
+
     fontSize = number('fontSize', 13).clamp(10, 24);
     contextLines = number('contextLines', 3).clamp(0, 1000).toInt();
     contextOnly = flag('contextOnly', false);
@@ -122,6 +250,11 @@ class Settings extends ChangeNotifier {
     'themeMode': themeMode.name,
     'lightTheme': lightTheme.name,
     'darkTheme': darkTheme.name,
+    'lightCustomThemeId': lightCustomThemeId,
+    'darkCustomThemeId': darkCustomThemeId,
+    'customThemes': [
+      for (final theme in _customThemes) theme.toJson(includeId: true),
+    ],
     'fontSize': fontSize,
     'contextLines': contextLines,
     'contextOnly': contextOnly,

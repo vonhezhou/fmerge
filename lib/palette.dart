@@ -17,6 +17,37 @@ const removedInline = Color(0xff67343e);
 const movedBg = Color(0xff203547);
 const movedInk = Color(0xff85cce8);
 
+/// 配色文件与编辑器共用字段定义，字段名也是稳定的导入导出键。
+enum ThemeColor {
+  bg('窗口背景'),
+  panel('编辑器与面板背景'),
+  elevated('浮层背景'),
+  border('边框与分隔线'),
+  muted('次要文字'),
+  ink('主要文字'),
+  accent('强调色与光标'),
+  green('新增标记'),
+  red('删除标记'),
+  amber('警告标记'),
+  addedBg('新增行背景'),
+  removedBg('删除行背景'),
+  addedInline('新增行内背景'),
+  removedInline('删除行内背景'),
+  movedBg('移动行背景'),
+  movedInk('移动标记'),
+  conflictBg('冲突背景'),
+  selection('选区背景'),
+  keyword('关键字'),
+  string('字符串'),
+  number('数字'),
+  comment('注释'),
+  title('类型与函数名'),
+  meta('属性与元数据');
+
+  const ThemeColor(this.label);
+  final String label;
+}
+
 enum ColorTheme {
   fmergeDark('fmerge Dark', Brightness.dark),
   githubLight('GitHub Light', Brightness.light),
@@ -93,6 +124,60 @@ class AppPalette extends ThemeExtension<AppPalette> {
   static AppPalette of(BuildContext context) =>
       Theme.of(context).extension<AppPalette>() ??
       palettes[ColorTheme.fmergeDark]!;
+
+  Map<String, Color> get colors => {
+    'bg': bg,
+    'panel': panel,
+    'elevated': elevated,
+    'border': border,
+    'muted': muted,
+    'ink': ink,
+    'accent': accent,
+    'green': green,
+    'red': red,
+    'amber': amber,
+    'addedBg': addedBg,
+    'removedBg': removedBg,
+    'addedInline': addedInline,
+    'removedInline': removedInline,
+    'movedBg': movedBg,
+    'movedInk': movedInk,
+    'conflictBg': conflictBg,
+    'selection': selection,
+    'keyword': keyword,
+    'string': string,
+    'number': number,
+    'comment': comment,
+    'title': title,
+    'meta': meta,
+  };
+
+  AppPalette withColors(Map<String, Color> colors) => copyWith(
+    bg: colors['bg'],
+    panel: colors['panel'],
+    elevated: colors['elevated'],
+    border: colors['border'],
+    muted: colors['muted'],
+    ink: colors['ink'],
+    accent: colors['accent'],
+    green: colors['green'],
+    red: colors['red'],
+    amber: colors['amber'],
+    addedBg: colors['addedBg'],
+    removedBg: colors['removedBg'],
+    addedInline: colors['addedInline'],
+    removedInline: colors['removedInline'],
+    movedBg: colors['movedBg'],
+    movedInk: colors['movedInk'],
+    conflictBg: colors['conflictBg'],
+    selection: colors['selection'],
+    keyword: colors['keyword'],
+    string: colors['string'],
+    number: colors['number'],
+    comment: colors['comment'],
+    title: colors['title'],
+    meta: colors['meta'],
+  );
 
   Color tokenColor(String scope) => switch (scope.split('.').first) {
     'keyword' || 'literal' => keyword,
