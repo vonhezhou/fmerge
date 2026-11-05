@@ -176,6 +176,10 @@ class _CodeSelectionGestureDetectorState extends State<_CodeSelectionGestureDete
   }
 
   void _onMobileTapUp(Offset position) {
+    if (!widget.controller.isComposing && render.revealHiddenAt(position)) {
+      widget.inputController.ensureInput();
+      return;
+    }
     final DateTime now = DateTime.now();
     if (_pointerTapTimestamp != null && (now.millisecondsSinceEpoch - _pointerTapTimestamp!.millisecondsSinceEpoch) <
       kDoubleTapTimeout.inMilliseconds && _pointerTapPosition != null && _pointerTapPosition!.isSamePosition(position)) {
@@ -211,6 +215,12 @@ class _CodeSelectionGestureDetectorState extends State<_CodeSelectionGestureDete
 
   void _onDesktopTapDown(Offset position) {
     if (widget.controller.isComposing) {
+      return;
+    }
+    if (render.revealHiddenAt(position)) {
+      _tapping = false;
+      _handleByNextEvent = false;
+      _pointerTapTimestamp = null;
       return;
     }
     final DateTime now = DateTime.now();

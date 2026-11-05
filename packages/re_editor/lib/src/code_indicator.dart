@@ -71,6 +71,7 @@ class DefaultCodeLineNumber extends LeafRenderObjectWidget {
     textStyle: textStyle ?? _useCodeTextStyle(context, false),
     focusedTextStyle: focusedTextStyle ?? _useCodeTextStyle(context, true),
     minNumberCount: minNumberCount ?? _kDefaultMinNumberCount,
+    wordWrap: context.findAncestorWidgetOfExactType<_CodeEditable>()?.wordWrap ?? false,
     custonLineIndex2Text: customLineIndex2Text,
   );
 
@@ -81,7 +82,8 @@ class DefaultCodeLineNumber extends LeafRenderObjectWidget {
       ..notifier = notifier
       ..textStyle = textStyle ?? _useCodeTextStyle(context, false)
       ..focusedTextStyle = focusedTextStyle ?? _useCodeTextStyle(context, true)
-      ..minNumberCount = minNumberCount ?? _kDefaultMinNumberCount;
+      ..minNumberCount = minNumberCount ?? _kDefaultMinNumberCount
+      ..wordWrap = context.findAncestorWidgetOfExactType<_CodeEditable>()?.wordWrap ?? false;
     super.updateRenderObject(context, renderObject);
   }
 

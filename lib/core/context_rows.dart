@@ -3,8 +3,13 @@ import 'dart:typed_data';
 
 /// 将未改动区压缩成提示行；真实文档行号、文本和选择保持不变。
 class ContextRows {
-  ContextRows(int total, Set<int> changed, {int context = 3})
-    : rows = Int32List(total) {
+  ContextRows(
+    int total,
+    Set<int> changed, {
+    int context = 3,
+    this.placeholderRows = 1,
+  }) : assert(placeholderRows > 0),
+       rows = Int32List(total) {
     if (changed.length == total &&
         changed.every((row) => row >= 0 && row < total)) {
       for (var row = 0; row < total; row++) {
@@ -24,7 +29,9 @@ class ContextRows {
         rows[cursor++] = display;
       }
       (hidden as _HiddenRanges).append(start, end);
-      labels[display++] = '⋯ 已隐藏 ${end - start} 行未改动内容 ⋯';
+      hiddenRanges[display] = (start, end);
+      labels[display] = '⋯ 已隐藏 ${end - start} 行未改动内容 ⋯';
+      display += placeholderRows;
     }
 
     void visibleRange(int start, int end) {
@@ -52,6 +59,34 @@ class ContextRows {
   }
   Set<int> projectHidden(List<int> sourceRows) =>
       _ProjectedHidden(hidden, sourceRows);
+
+  /// 为省略提示保留的显示行数，不改变文档行号。
+  final int placeholderRows;
+  final hiddenRanges = <int, (int, int)>{};
+
+  Map<int, String> labelsFor(List<int> sourceRows) {
+    int lowerBound(int row) {
+      var low = 0, high = sourceRows.length;
+      while (low < high) {
+        final mid = (low + high) ~/ 2;
+        if (sourceRows[mid] < row) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      return low;
+    }
+
+    return {
+      for (final entry in hiddenRanges.entries)
+        entry.key: () {
+          final start = lowerBound(entry.value.$1),
+              end = lowerBound(entry.value.$2);
+          return '${end - start} 行未改动 · 原始行 L${start + 1}–L$end';
+        }(),
+    };
+  }
 
   final List<int> rows;
   final Set<int> hidden = _HiddenRanges();

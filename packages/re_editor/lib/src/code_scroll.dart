@@ -24,6 +24,20 @@ class CodeScrollController {
     _render?.makePositionCenterIfInvisible(position, force: true);
   }
 
+  /// 用真实文本位置保存视口锚点，省略带会映射到相邻真实行。
+  CodeLinePosition? get viewportCenter {
+    final render = _render;
+    if (render == null || !render.hasSize) return null;
+    return render.calculateTextPosition(Offset(0, render.size.height / 2));
+  }
+
+  bool isLineVisible(int index) {
+    final render = _render;
+    if (render == null || !render.hasSize) return false;
+    final offset = render.calculateTextPositionViewportOffset(CodeLinePosition(index: index, offset: 0));
+    return offset != null && offset.dy >= 0 && offset.dy < render.size.height;
+  }
+
   void makeVisible(CodeLinePosition position) {
     _render?.makePositionVisible(position);
   }

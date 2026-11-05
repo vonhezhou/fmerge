@@ -9,13 +9,16 @@ class CodeDiffLayout {
   final int totalRows;
   final Set<int> hiddenLines;
   final Map<int, String> rowLabels;
+  final int placeholderRows;
+  final Color? placeholderColor;
+  final ValueChanged<int>? onRevealHidden;
   final Map<int, Color> rowColors;
   final bool showWhitespace;
   final Map<int, List<CodeDiffRange>> ranges;
   /// 两侧共享每个对齐行的换行高度；不换行时忽略。
   final CodeDiffWrap? wrap;
   const CodeDiffLayout({required this.lineRows, required this.totalRows,
-    this.visibleLines, this.hiddenLines = const {}, this.rowLabels = const {}, this.rowColors = const {}, this.ranges = const {}, this.showWhitespace = false, this.wrap});
+    this.visibleLines, this.hiddenLines = const {}, this.rowLabels = const {}, this.placeholderRows = 1, this.placeholderColor, this.onRevealHidden, this.rowColors = const {}, this.ranges = const {}, this.showWhitespace = false, this.wrap});
 }
 
 /// 收集各栏实际段落高度，以较高一侧为准；帧结束后通知另一栏重新布局。

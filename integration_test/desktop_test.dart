@@ -61,6 +61,9 @@ void main() {
         ),
       ),
     );
+    // 测试窗口被其他应用遮挡后，macOS 会停止提交帧，使 pumpAndSettle 无法推进。
+    await windowManager.setAlwaysOnTop(true);
+    addTearDown(() => windowManager.setAlwaysOnTop(false));
     await windowManager.show();
     // 与正式启动流程一致，激活窗口后再验证编辑器快捷键。
     await windowManager.focus();
@@ -110,14 +113,14 @@ void main() {
       await tester.tap(find.byKey(ValueKey('menu-$menu')));
       await tester.pumpAndSettle();
       await snapshot(name);
-      await tester.tapAt(const Offset(20, 600));
+      await tester.tapAt(const Offset(420, 20));
       await tester.pumpAndSettle();
     }
     await tester.tap(find.byKey(const ValueKey('menu-视图')));
     await tester.pumpAndSettle();
     await snapshot('view-menu');
-    // 点选遮罩关闭菜单，避免原生窗口焦点影响合成 Escape 事件。
-    await tester.tapAt(const Offset(20, 400));
+    // 点击工具条空白关闭菜单，不改变当前编辑栏；原先左侧此处已不再是概览条。
+    await tester.tapAt(const Offset(420, 20));
     await tester.pumpAndSettle();
     await chooseMenuCommand(tester, 'nextInlineDiff', menu: '导航');
     await tester.pumpAndSettle();
@@ -264,7 +267,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('menu-合并')));
     await tester.pumpAndSettle();
     await snapshot('merge-menu');
-    await tester.tapAt(const Offset(20, 600));
+    await tester.tapAt(const Offset(420, 20));
     await tester.pumpAndSettle();
     expect(merge.toolExitCode, 1);
     final unchangedResult = merge.resultEditor!.text;
@@ -311,8 +314,14 @@ void main() {
     await tester.tap(find.text('查看祖先'));
     await tester.pumpAndSettle();
     await snapshot('base');
+    debugPrint('STEP: close base');
     await tester.tap(find.byTooltip('关闭共同祖先'));
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 10),
+    );
+    debugPrint('STEP: base closed');
     // 大文件使用同一套可编辑布局，验证远距离定位与鼠标滚轮同步。
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
@@ -323,6 +332,7 @@ void main() {
       ..writeAsStringSync(original.join('\n'));
     final largeRight = File('${dir.path}/large-right.dart')
       ..writeAsStringSync(modified.join('\n'));
+    debugPrint('STEP: large open');
     final large = await CompareSession.open(
       LaunchOptions(left: largeLeft.path, right: largeRight.path),
     );
@@ -334,6 +344,7 @@ void main() {
       ),
     );
     await ready(large);
+    debugPrint('STEP: large ready');
     final largePanes = tester
         .widgetList<CodePane>(find.byType(CodePane))
         .toList();
@@ -371,8 +382,8 @@ void main() {
     expect(large.leftEditor.text, original.join('\n'));
     await chooseMenuCommand(tester, 'contextOnly');
     await tester.pumpAndSettle();
-    expect(large.leftEditor.diffLayout!.totalRows, 10);
-    expect(large.rightEditor.diffLayout!.totalRows, 10);
+    expect(large.leftEditor.diffLayout!.totalRows, 12);
+    expect(large.rightEditor.diffLayout!.totalRows, 12);
     expect(large.leftEditor.text, original.join('\n'));
     await chooseMenuCommand(tester, 'contextOnly');
     await tester.pumpAndSettle();
@@ -545,6 +556,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await tester.pumpAndSettle();
+    await snapshot('shortcut-recorded');
     expect(find.textContaining('已用于“保存”'), findsOneWidget);
     await snapshot('shortcut-conflict');
     await tester.sendKeyEvent(LogicalKeyboardKey.f9);
@@ -638,6 +650,41 @@ void main() {
       (await Clipboard.getData(Clipboard.kTextPlain))!.text,
       features.leftEditor.text,
     );
+    await chooseMenuCommand(tester, 'contextOnly');
+    await tester.pumpAndSettle();
+    final rightPane = tester.widgetList<CodePane>(find.byType(CodePane)).last;
+    rightPane.scroll.verticalScroller.jumpTo(0);
+    await tester.pumpAndSettle();
+    await snapshot('context-only');
+    final appearance = rightPane.settings.themeMode;
+    rightPane.settings.setAppearance(mode: ThemeMode.light);
+    await tester.pumpAndSettle();
+    await snapshot('context-only-light');
+    rightPane.settings.setAppearance(mode: appearance);
+    await tester.pumpAndSettle();
+    final layout = features.rightEditor.diffLayout!;
+    final first = tester
+        .widgetList<DefaultCodeLineNumber>(find.byType(DefaultCodeLineNumber))
+        .last
+        .notifier
+        .value!
+        .paragraphs
+        .first;
+    final gap = layout.rowLabels.keys.first;
+    final hiddenLine = layout.hiddenLines.first;
+    final unit = first.preferredLineHeight;
+    final y =
+        first.offset.dy +
+        (layout.wrap!.rowStart(gap) -
+                layout.wrap!.rowStart(layout.lineRows[first.index]) +
+                1) *
+            unit;
+    final rect = tester.getRect(find.byType(CodeEditor).last);
+    await tester.tapAt(Offset(rect.center.dx, rect.top + y));
+    await tester.pumpAndSettle();
+    expect(features.contextOnly, false);
+    expect(features.rightEditor.selection.extentIndex, hiddenLine);
+    await snapshot('context-expanded');
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 }

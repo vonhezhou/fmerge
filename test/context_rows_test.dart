@@ -63,9 +63,17 @@ void main() {
     await s.refresh();
     final full = s.leftEditor.diffLayout!.lineRows;
     s.setContextOnly(true);
-    expect(s.leftEditor.diffLayout!.totalRows, 10);
-    expect(s.rightEditor.diffLayout!.totalRows, 10);
-    expect(s.hunkRows, [4]);
+    expect(s.leftEditor.diffLayout!.totalRows, 12);
+    expect(s.rightEditor.diffLayout!.totalRows, 12);
+    expect(s.hunkRows, [5]);
+    expect(
+      s.leftEditor.diffLayout!.rowLabels.values.last,
+      contains('原始行 L29–L60'),
+    );
+    expect(
+      s.rightEditor.diffLayout!.rowLabels.values.last,
+      contains('原始行 L31–L62'),
+    );
     s.rightEditor.selection = const CodeLineSelection.collapsed(
       index: 25,
       offset: 0,

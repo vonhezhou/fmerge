@@ -574,6 +574,34 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     return null;
   }
 
+  int? _hiddenRowAt(Offset local) {
+    final layout = _diffLayout;
+    if (layout?.onRevealHidden == null || !isValidPointer(local)) return null;
+    final pixels = local.dy + _verticalViewport.pixels - paddingTop;
+    if (pixels < 0) return null;
+    final physical = (pixels / _preferredLineHeight).floor();
+    var row = physical;
+    if (_horizontalViewport == null) {
+      var low = 0, high = layout!.totalRows;
+      while (low < high) {
+        final mid = (low + high) ~/ 2;
+        if (_rowStart(mid + 1) <= physical) { low = mid + 1; } else { high = mid; }
+      }
+      row = low;
+    }
+    for (var delta = 0; delta < layout!.placeholderRows; delta++) {
+      if (layout.rowLabels.containsKey(row - delta)) return row - delta;
+    }
+    return null;
+  }
+
+  bool revealHiddenAt(Offset globalPosition) {
+    final row = _hiddenRowAt(globalToLocal(globalPosition));
+    if (row == null) return false;
+    _diffLayout!.onRevealHidden!(row);
+    return true;
+  }
+
   CodeLineSelection? setPositionAt({
     required Offset position,
   }) {
@@ -913,7 +941,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       } else if (span is HitTestTarget) {
         result.add(HitTestEntry(span as HitTestTarget));
       }
-      if (_chunkIndicators.where((chunk) => chunk.canExpand && chunk.region.contains(position)).isNotEmpty) {
+      if (_hiddenRowAt(position) != null || _chunkIndicators.where((chunk) => chunk.canExpand && chunk.region.contains(position)).isNotEmpty) {
         _cursor = SystemMouseCursors.click;
       } else if (span is TextSpan && span.mouseCursor != MouseCursor.defer) {
         _cursor = span.mouseCursor;
@@ -1447,22 +1475,24 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         size.width, _rowHeight(row) * _preferredLineHeight), Paint()..color = color);
     }
     for (final entry in layout.rowLabels.entries) {
-      if (entry.key < first || entry.key >= last) continue;
+      if (entry.key + layout.placeholderRows <= first || entry.key >= last) continue;
       final y = origin.dy + paddingTop + _rowStart(entry.key) * _preferredLineHeight - _verticalViewport.pixels;
-      final color = _textStyle.color ?? const Color(0xff758196);
-      final rect = Rect.fromLTWH(origin.dx, y, size.width, _preferredLineHeight);
-      // 省略行固定在视口中，避免横向滚动后丢失片段边界提示。
-      canvas.drawRect(rect, Paint()..color = color.withValues(alpha: .08));
-      final edge = Paint()..color = color.withValues(alpha: .20)..strokeWidth = 1;
+      final color = layout.placeholderColor ?? _textStyle.color ?? const Color(0xff758196);
+      final height = (_rowStart(entry.key + layout.placeholderRows) - _rowStart(entry.key)) * _preferredLineHeight;
+      final rect = Rect.fromLTWH(origin.dx, y, size.width, height);
+      // 省略带固定在视口中，行数与原始行号范围不随横向滚动消失。
+      canvas.drawRect(rect, Paint()..color = color.withValues(alpha: .12));
+      final edge = Paint()..color = color.withValues(alpha: .4)..strokeWidth = 1;
       canvas.drawLine(rect.topLeft, rect.topRight, edge);
       canvas.drawLine(rect.bottomLeft, rect.bottomRight, edge);
-      final painter = TextPainter(text: TextSpan(text: entry.value,
-        style: _textStyle.copyWith(color: color.withValues(alpha: .75),
-          fontFamily: 'sans-serif', fontWeight: FontWeight.w500)),
-        maxLines: 1, ellipsis: '…',
-        textDirection: TextDirection.ltr)..layout(maxWidth: max(1.0, size.width - paddingLeft - paddingRight));
-      painter.paint(canvas, Offset(origin.dx + paddingLeft,
-        y + (_preferredLineHeight - painter.height) / 2));
+      canvas.drawRect(Rect.fromLTWH(rect.left, rect.top, 3, height), Paint()..color = color.withValues(alpha: .65));
+      final painter = TextPainter(text: TextSpan(children: [
+        TextSpan(text: '⋯  ${entry.value}', style: _textStyle.copyWith(color: color, fontFamily: 'sans-serif', fontWeight: FontWeight.w600)),
+        if (layout.onRevealHidden != null)
+          TextSpan(text: '\n点击显示全文', style: _textStyle.copyWith(color: color, fontFamily: 'sans-serif', fontSize: (_textStyle.fontSize ?? 13) - 1)),
+      ]), maxLines: layout.placeholderRows, ellipsis: '…', textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr)..layout(minWidth: max(1.0, size.width - paddingLeft - paddingRight), maxWidth: max(1.0, size.width - paddingLeft - paddingRight));
+      painter.paint(canvas, Offset(origin.dx + paddingLeft, y + (height - painter.height) / 2));
       painter.dispose();
     }
     for (final paragraph in _displayParagraphs) {

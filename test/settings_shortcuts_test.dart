@@ -217,7 +217,7 @@ void main() {
     await tester.pumpWidget(FmergeApp(settings: settings, initial: first));
     await waitUntil(tester, () => !first.busy);
     expect(first.contextOnly, true);
-    expect(first.leftEditor.diffLayout!.totalRows, 19);
+    expect(first.leftEditor.diffLayout!.totalRows, 21);
     final settingsRect = tester.getRect(
       find.byKey(const ValueKey('command-settings')),
     );

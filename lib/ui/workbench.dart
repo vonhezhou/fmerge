@@ -716,7 +716,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     }
   }
 
-  void _centerNavigation(int side, int line) {
+  void _centerNavigation(int side, int line, {bool preserveSelection = false}) {
     final s = session!;
     final controller = side == 0
         ? s.leftEditor
@@ -734,20 +734,23 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         ? _rightFocus
         : _resultFocus;
     final target = line.clamp(0, controller.lineCount - 1);
-    controller.selection = CodeLineSelection.collapsed(
-      index: target,
-      offset: 0,
-    );
-    focus.requestFocus();
+    if (!preserveSelection || controller.selection.extentIndex != target) {
+      controller.selection = CodeLineSelection.collapsed(
+        index: target,
+        offset: 0,
+      );
+    }
+    final targetOffset = controller.selection.extentOffset;
+    if (!preserveSelection) focus.requestFocus();
     // 选择可能更新折叠/换行布局；布局完成后居中，避免被光标的自动滚动覆盖。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           !identical(session, s) ||
           controller.selection.extentIndex != target ||
-          controller.selection.extentOffset != 0) {
+          controller.selection.extentOffset != targetOffset) {
         return;
       }
-      scroll.makeCenter(CodeLinePosition(index: target, offset: 0));
+      scroll.makeCenter(CodeLinePosition(index: target, offset: targetOffset));
     });
   }
 
@@ -824,8 +827,27 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   void _toggleContext() {
     final s = session;
     if (s == null || s.isMerge || s.busy) return;
+    final side = _active == 0 ? 0 : 1;
+    final controller = side == 0 ? s.leftEditor : s.rightEditor;
+    final layout = controller.diffLayout;
+    final scroll = side == 0 ? _leftScroll : _rightScroll;
+    final leaving = s.contextOnly;
+    var anchor = controller.selection.extentIndex;
+    if (leaving && !scroll.isLineVisible(anchor)) {
+      anchor = scroll.viewportCenter?.index ?? anchor;
+    }
+    if (leaving && layout?.hiddenLines.contains(anchor) == true) {
+      anchor = s.hunkRows.isEmpty
+          ? 0
+          : lineAtRow(
+                  layout!.lineRows,
+                  s.hunkRows[_hunk.clamp(0, s.hunkRows.length - 1)],
+                ) ??
+                (layout.visibleLines?.firstOrNull ?? 0);
+    }
     settings.contextOnly = !s.contextOnly;
     s.setContextOnly(settings.contextOnly, context: settings.contextLines);
+    if (leaving) _centerNavigation(side, anchor, preserveSelection: true);
     _saveSettings();
   }
 
@@ -1851,20 +1873,6 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       },
       child: Row(
         children: [
-          if (settings.showOverview)
-            Padding(
-              padding: EdgeInsets.only(
-                top: (s.isMerge ? 70 : 42) + _sharedFindHeight,
-                bottom: 32,
-              ),
-              child: DiffOverview(
-                wordWrap: settings.wordWrap,
-                left: overviewLayout(0),
-                right: overviewLayout(1),
-                scroll: _leftScroll.verticalScroller,
-                onSeek: s.comparisonCurrent ? _seekOverview : null,
-              ),
-            ),
           Expanded(
             child: _pane(
               0,
@@ -1890,6 +1898,20 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               readOnly: s.readOnly || s.isMerge,
             ),
           ),
+          if (settings.showOverview)
+            Padding(
+              padding: EdgeInsets.only(
+                top: (s.isMerge ? 70 : 42) + _sharedFindHeight,
+                bottom: 32,
+              ),
+              child: DiffOverview(
+                wordWrap: settings.wordWrap,
+                left: overviewLayout(0),
+                right: overviewLayout(1),
+                scroll: _leftScroll.verticalScroller,
+                onSeek: s.comparisonCurrent ? _seekOverview : null,
+              ),
+            ),
         ],
       ),
     );

@@ -353,7 +353,7 @@ void main() {
     await chooseMenuCommand(tester, 'contextOnly');
     await tester.pumpAndSettle();
     expect(s.contextOnly, true);
-    expect(s.leftEditor.diffLayout!.totalRows, 9);
+    expect(s.leftEditor.diffLayout!.totalRows, 11);
     expect(s.rightEditor.text, right.join('\n'));
     expect(find.text('仅看差异 · 前后各 3 行 · 已省略 2 段未改动内容'), findsOneWidget);
     expect(tester.takeException(), isNull);

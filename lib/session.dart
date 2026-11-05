@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/material.dart' show Color;
 import 'package:re_editor/re_editor.dart';
 
@@ -228,11 +229,14 @@ class CompareSession extends ChangeNotifier {
     if (_fullLeft == null || _fullRight == null) return;
     _programmatic = true;
     _context = contextOnly && !isMerge && diff != null
-        ? ContextRows(diff!.rows.length, {
-            for (final entry in diff!.changedRows) entry.$1,
-          }, context: contextLines)
+        ? ContextRows(
+            diff!.rows.length,
+            {for (final entry in diff!.changedRows) entry.$1},
+            context: contextLines,
+            placeholderRows: 2,
+          )
         : null;
-    CodeDiffLayout project(CodeDiffLayout layout) {
+    CodeDiffLayout project(CodeDiffLayout layout, int side) {
       final map = _context;
       if (map == null) return layout;
       return CodeDiffLayout(
@@ -243,7 +247,10 @@ class CompareSession extends ChangeNotifier {
           for (var i = 0; i < layout.lineRows.length; i++)
             if (!map.hidden.contains(layout.lineRows[i])) i,
         ],
-        rowLabels: map.labels,
+        rowLabels: map.labelsFor(layout.lineRows),
+        placeholderRows: map.placeholderRows,
+        placeholderColor: palette.accent,
+        onRevealHidden: (row) => revealHiddenContext(side, row),
         rowColors: {
           for (final entry in layout.rowColors.entries)
             if (!map.hidden.contains(entry.key))
@@ -255,9 +262,30 @@ class CompareSession extends ChangeNotifier {
       );
     }
 
-    leftEditor.diffLayout = project(_fullLeft!);
-    rightEditor.diffLayout = project(_fullRight!);
+    leftEditor.diffLayout = project(_fullLeft!, 0);
+    rightEditor.diffLayout = project(_fullRight!, 1);
     _programmatic = false;
+  }
+
+  /// 省略带进入全文，并定位所点击范围的第一条真实行；不改写下次打开的折叠偏好。
+  void revealHiddenContext(int side, int displayRow) {
+    if (_disposed || !contextOnly || !comparisonCurrent) return;
+    final range = _context?.hiddenRanges[displayRow];
+    if (range == null) return;
+    final full = side == 0 ? _fullLeft : _fullRight;
+    final controller = side == 0 ? leftEditor : rightEditor;
+    final line = full?.lineRows.indexWhere((row) => row >= range.$1) ?? -1;
+    setContextOnly(false);
+    final target = line < 0 ? controller.lineCount - 1 : line;
+    controller.selection = CodeLineSelection.collapsed(
+      index: target,
+      offset: 0,
+    );
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed && controller.selection.extentIndex == target) {
+        controller.makeCursorCenterIfInvisible();
+      }
+    });
   }
 
   void setShowWhitespace(bool value) {
@@ -270,6 +298,9 @@ class CompareSession extends ChangeNotifier {
             hiddenLines: layout.hiddenLines,
             visibleLines: layout.visibleLines,
             rowLabels: layout.rowLabels,
+            placeholderRows: layout.placeholderRows,
+            placeholderColor: layout.placeholderColor,
+            onRevealHidden: layout.onRevealHidden,
             rowColors: layout.rowColors,
             ranges: layout.ranges,
             showWhitespace: value,

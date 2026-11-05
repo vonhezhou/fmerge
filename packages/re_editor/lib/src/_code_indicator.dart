@@ -8,6 +8,7 @@ class CodeLineNumberRenderObject extends RenderBox {
   TextStyle _focusedTextStyle;
   int _minNumberCount;
   int _allLineCount;
+  bool _wordWrap;
 
   final String Function(int lineIndex)? _customLineIndex2Text;
   final TextPainter _textPainter;
@@ -18,12 +19,14 @@ class CodeLineNumberRenderObject extends RenderBox {
     required TextStyle textStyle,
     required TextStyle focusedTextStyle,
     required int minNumberCount,
+    bool wordWrap = false,
     String Function(int lineIndex)? custonLineIndex2Text,
   }) : _controller = controller,
     _notifier = notifier,
     _textStyle = textStyle,
     _focusedTextStyle = focusedTextStyle,
     _minNumberCount = minNumberCount,
+    _wordWrap = wordWrap,
     _allLineCount = controller.lineCount,
     _customLineIndex2Text = custonLineIndex2Text,
     _textPainter = TextPainter(
@@ -82,6 +85,12 @@ class CodeLineNumberRenderObject extends RenderBox {
     markNeedsLayout();
   }
 
+  set wordWrap(bool value) {
+    if (_wordWrap == value) return;
+    _wordWrap = value;
+    markNeedsPaint();
+  }
+
   @override
   bool hitTestSelf(Offset position) => true;
 
@@ -135,6 +144,8 @@ class CodeLineNumberRenderObject extends RenderBox {
     canvas.clipRect(Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height));
     int firstLineIndex = _controller.index2lineIndex(value.paragraphs.first.index);
     for (final CodeLineRenderParagraph paragraph in value.paragraphs) {
+      // Diff 视图段落可能不连续，不能按可见行累计编号。
+      if (_controller.diffLayout != null) firstLineIndex = paragraph.index;
       final lineIndexText = _customLineIndex2Text?.call(firstLineIndex) ?? (firstLineIndex + 1).toString();
       _textPainter.text = TextSpan(
         text: lineIndexText,
@@ -143,6 +154,23 @@ class CodeLineNumberRenderObject extends RenderBox {
       _textPainter.layout();
       _textPainter.paint(canvas, Offset(offset.dx + size.width - _textPainter.width, offset.dy + paragraph.offset.dy));
       firstLineIndex += _controller.codeLines[paragraph.index].lineCount;
+    }
+    final layout = _controller.diffLayout;
+    if (layout != null && layout.rowLabels.isNotEmpty) {
+      final first = value.paragraphs.first;
+      final unit = first.preferredLineHeight;
+      int rowStart(int row) => _wordWrap ? (layout.wrap?.rowStart(row) ?? row) : row;
+      final base = first.offset.dy - rowStart(layout.lineRows[first.index]) * unit;
+      final color = layout.placeholderColor ?? _textStyle.color ?? const Color(0xff758196);
+      for (final row in layout.rowLabels.keys) {
+        final y = base + rowStart(row) * unit;
+        final height = (rowStart(row + layout.placeholderRows) - rowStart(row)) * unit;
+        if (y + height < 0 || y > size.height) continue;
+        canvas.drawRect(Rect.fromLTWH(offset.dx, offset.dy + y, size.width, height), Paint()..color = color.withValues(alpha: .12));
+        _textPainter.text = TextSpan(text: '⋯', style: _textStyle.copyWith(color: color, fontWeight: FontWeight.bold));
+        _textPainter.layout();
+        _textPainter.paint(canvas, Offset(offset.dx + (size.width - _textPainter.width) / 2, offset.dy + y + (height - _textPainter.height) / 2));
+      }
     }
     canvas.restore();
   }
