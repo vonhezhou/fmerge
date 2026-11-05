@@ -13,6 +13,7 @@ import 'package:fmerge/core/settings.dart';
 import 'package:fmerge/main.dart';
 import 'package:fmerge/session.dart';
 import 'package:fmerge/ui/code_pane.dart';
+import 'package:fmerge/ui/git_review_dialog.dart';
 
 Future<void> waitFor(WidgetTester tester, bool Function() ready) async {
   final seen = <String>{};
@@ -176,6 +177,94 @@ void main() {
     expect(code, 1);
   });
 
+  desktopTest('新建比较取消时保留编辑，确认丢弃后两侧均为空且可编辑', (tester) async {
+    final s = CompareSession(TextFile.empty('left'), TextFile.empty('right'));
+    await app(tester, s);
+    s.rightEditor.text = 'unsaved';
+    await tester.pump(const Duration(milliseconds: 170));
+    await waitFor(tester, () => !s.busy);
+    await invoke(tester, 'newCompare', menu: '文件');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(s.rightEditor.text, 'unsaved');
+    await invoke(tester, 'newCompare', menu: '文件');
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => tester.tap(find.text('不保存')));
+    await waitFor(
+      tester,
+      () =>
+          find.byType(CodePane).evaluate().length == 2 &&
+          tester.widgetList<CodePane>(find.byType(CodePane)).last.controller !=
+              s.rightEditor &&
+          find.text('正在比较…').evaluate().isEmpty,
+    );
+    final panes = tester.widgetList<CodePane>(find.byType(CodePane)).toList();
+    expect(panes.every((p) => p.controller.text.isEmpty && !p.readOnly), true);
+  });
+
+  desktopTest('三方选择面板回填最近路径，取消不影响当前未保存内容', (tester) async {
+    final settings = Settings(persist: false);
+    settings.remember('/left.txt', '/right.txt', '/base.txt', '/out.txt');
+    final s = CompareSession(TextFile.empty('left'), TextFile.empty('right'));
+    await app(tester, s, settings: settings);
+    s.rightEditor.text = 'unsaved';
+    await tester.pump(const Duration(milliseconds: 170));
+    await waitFor(tester, () => !s.busy);
+    await invoke(tester, 'open-merge', menu: '文件');
+    await tester.pumpAndSettle();
+    final expected = ['/base.txt', '/left.txt', '/right.txt', '/out.txt'];
+    for (var i = 0; i < 4; i++) {
+      expect(
+        tester
+            .widget<TextFormField>(find.byKey(ValueKey('merge-path-$i')))
+            .controller!
+            .text,
+        expected[i],
+      );
+    }
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(s.rightEditor.text, 'unsaved');
+    expect(find.text('有尚未保存的修改'), findsNothing);
+  });
+
+  desktopTest('Git 预览加载可取消，结束后允许关闭和刷新', (tester) async {
+    final path = file('tracked', 'text').path;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: GitReviewDialog(path: path, encoding: TextEncoding.utf8),
+        ),
+      ),
+    );
+    final cancel = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, '取消操作'),
+    );
+    cancel.onPressed!();
+    await waitFor(
+      tester,
+      () => find.textContaining('操作已取消').evaluate().isNotEmpty,
+    );
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '关闭'))
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byWidgetPredicate(
+              (w) => w is IconButton && w.tooltip == '刷新 Git 差异',
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   desktopTest('文件菜单打开三方合并，明确选择来源和输出', (tester) async {
     picker.paths.addAll([
       file('base', 'base').path,
@@ -185,6 +274,16 @@ void main() {
     picker.destination = '${dir.path}/merged';
     await app(tester, null);
     await invoke(tester, 'open-merge', menu: '文件');
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 4; i++) {
+      await tester.runAsync(
+        () => tester.tap(find.byKey(ValueKey('merge-browse-$i'))),
+      );
+      await tester.pumpAndSettle();
+    }
+    await tester.runAsync(
+      () => tester.tap(find.byKey(const ValueKey('merge-open'))),
+    );
     await waitFor(
       tester,
       () =>

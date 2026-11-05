@@ -79,6 +79,10 @@ void main() {
     final store = RecoveryStore(dir.path), other = RecoveryStore(dir.path);
     await store.save(s.recoverySnapshot());
     await other.save(s.recoverySnapshot());
+    expect(await store.list(), isEmpty);
+    await expectLater(store.remove(other.id), throwsStateError);
+    await store.close();
+    await other.close();
     expect(await store.list(), hasLength(2));
     final data = (await store.list()).firstWhere((r) => r.id == store.id).data;
     final restored = await CompareSession.recover(data);

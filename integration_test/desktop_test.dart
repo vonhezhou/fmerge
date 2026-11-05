@@ -122,6 +122,31 @@ void main() {
     // 点击工具条空白关闭菜单，不改变当前编辑栏；原先左侧此处已不再是概览条。
     await tester.tapAt(const Offset(420, 20));
     await tester.pumpAndSettle();
+    // 后台文件变化只提示，不覆盖编辑器正文；恢复原字节后提示自动清除。
+    final originalBytes = await right.readAsBytes();
+    final originalText = s.rightEditor.text;
+    const diskNotice = '磁盘文件发生变化。保存前会再次检查，避免覆盖其他程序的修改。';
+    await right.writeAsString('external update\n');
+    var until = DateTime.now().add(const Duration(seconds: 15));
+    while (find.text(diskNotice).evaluate().isEmpty) {
+      if (DateTime.now().isAfter(until)) fail('文件监听未提示外部改动');
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(s.rightEditor.text, originalText);
+    expect(s.rightDirty, false);
+    await snapshot('external-change');
+    await right.writeAsBytes(originalBytes);
+    until = DateTime.now().add(const Duration(seconds: 15));
+    while (find.text(diskNotice).evaluate().isNotEmpty) {
+      if (DateTime.now().isAfter(until)) fail('原文件恢复后提示未清除');
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await chooseMenuCommand(tester, 'open-merge', menu: '文件');
+    expect(find.byKey(const ValueKey('merge-path-0')), findsOneWidget);
+    await snapshot('merge-files-panel');
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(s.rightEditor.text, originalText);
     await chooseMenuCommand(tester, 'nextInlineDiff', menu: '导航');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selection.isCollapsed, false);

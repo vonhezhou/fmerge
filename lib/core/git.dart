@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 
 import 'files.dart';
 import 'merge_labels.dart';
+import 'process_operation.dart';
 
 class GitPatch {
   GitPatch(this.header, this.hunks);
@@ -91,9 +92,31 @@ class GitReview {
   final String _index, _diff;
 
   static Future<String>? _executable;
-  static Future<String> executable() => _executable ??= _findExecutable();
+  static String? _resolvedExecutable;
+  static Future<String> executable({ProcessOperation? operation}) {
+    operation?.check();
+    final resolved = _resolvedExecutable;
+    if (resolved != null) return Future.value(resolved);
+    if (operation != null) {
+      return _findExecutable(operation)
+          .then((value) => _resolvedExecutable = value);
+    }
+    return _executable ??= _resolveExecutable();
+  }
 
-  static Future<String> _findExecutable() async {
+  static Future<String> _resolveExecutable() async {
+    final operation = ProcessOperation();
+    try {
+      return _resolvedExecutable = await _findExecutable(operation);
+    } catch (_) {
+      _executable = null;
+      rethrow;
+    } finally {
+      operation.dispose();
+    }
+  }
+
+  static Future<String> _findExecutable(ProcessOperation operation) async {
     if (!Platform.isMacOS) return 'git';
     // /usr/bin/git 是 xcrun 入口，无法在 App Sandbox 中运行。
     final candidates = <String>{
@@ -113,7 +136,7 @@ class GitReview {
         if (!await file.exists()) continue;
         final actual = await file.resolveSymbolicLinks();
         if (actual == '/usr/bin/git') continue;
-        final result = await Process.run(actual, ['--version']);
+        final result = await operation.run(actual, ['--version']);
         if (result.exitCode == 0) return actual;
       } on ProcessException {
         continue;
@@ -139,57 +162,99 @@ class GitReview {
     String cwd,
     List<String> args, {
     bool bytes = false,
+    ProcessOperation? operation,
   }) async {
-    final result = await Process.run(
-      await executable(),
-      ['-c', 'core.quotePath=true', ...args],
-      workingDirectory: cwd,
-      environment: _environment,
-      includeParentEnvironment: false,
-      stdoutEncoding: bytes ? latin1 : utf8,
-      stderrEncoding: utf8,
-    );
-    if (result.exitCode != 0) throw StateError('Git 操作失败：${result.stderr}');
-    return result.stdout as String;
+    final task = operation ?? ProcessOperation();
+    try {
+      final result = await task.run(
+        await task.wait(executable(operation: task)),
+        ['-c', 'core.quotePath=true', ...args],
+        workingDirectory: cwd,
+        environment: _environment,
+        includeParentEnvironment: false,
+      );
+      if (result.exitCode != 0) {
+        throw StateError(
+          'Git 操作失败：${utf8.decode(result.stderr as List<int>, allowMalformed: true)}',
+        );
+      }
+      return (bytes ? latin1 : utf8).decode(result.stdout as List<int>);
+    } finally {
+      if (operation == null) task.dispose();
+    }
   }
 
-  static Future<String> findRoot(String file) async {
-    return (await _git(p.dirname(p.absolute(file)), [
-      'rev-parse',
-      '--show-toplevel',
-    ])).trimRight();
+  static Future<String> findRoot(
+    String file, {
+    ProcessOperation? operation,
+  }) async => (await _git(p.dirname(p.absolute(file)), [
+    'rev-parse',
+    '--show-toplevel',
+  ], operation: operation)).trimRight();
+  static Future<String> _indexState(
+    String root,
+    String path, {
+    ProcessOperation? operation,
+  }) => _git(root, [
+    'ls-files',
+    '--stage',
+    '-z',
+    '--',
+    path,
+  ], operation: operation);
+  static Future<String> _readDiff(
+    String root,
+    String path,
+    bool staged, {
+    ProcessOperation? operation,
+  }) => _git(
+    root,
+    [
+      'diff',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--no-color',
+      '--no-renames',
+      '--no-relative',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      '--diff-algorithm=myers',
+      '--unified=3',
+      '--no-indent-heuristic',
+      if (staged) '--cached',
+      '--',
+      path,
+    ],
+    bytes: true,
+    operation: operation,
+  );
+
+  static Future<GitReview> open(
+    String file, {
+    bool staged = false,
+    ProcessOperation? operation,
+  }) async {
+    final task = operation ?? ProcessOperation();
+    try {
+      return await _open(file, staged: staged, operation: task);
+    } finally {
+      if (operation == null) task.dispose();
+    }
   }
 
-  static Future<String> _indexState(String root, String path) =>
-      _git(root, ['ls-files', '--stage', '-z', '--', path]);
-
-  static Future<String> _readDiff(String root, String path, bool staged) =>
-      _git(root, [
-        'diff',
-        '--no-ext-diff',
-        '--no-textconv',
-        '--no-color',
-        '--no-renames',
-        '--no-relative',
-        '--src-prefix=a/',
-        '--dst-prefix=b/',
-        '--diff-algorithm=myers',
-        '--unified=3',
-        '--no-indent-heuristic',
-        if (staged) '--cached',
-        '--',
-        path,
-      ], bytes: true);
-
-  static Future<GitReview> open(String file, {bool staged = false}) async {
+  static Future<GitReview> _open(
+    String file, {
+    required bool staged,
+    required ProcessOperation operation,
+  }) async {
     // macOS 的 /var、/tmp 等别名与 Git 返回的真实根目录必须使用同一口径。
     final parent = await Directory(p.dirname(p.absolute(file)))
         .resolveSymbolicLinks();
     final absolute = p.join(parent, p.basename(file));
-    final root = await findRoot(absolute);
+    final root = await findRoot(absolute, operation: operation);
     final path = p.relative(absolute, from: root);
     if (!p.isWithin(root, absolute)) throw StateError('文件不在仓库中');
-    final index = await _indexState(root, path);
+    final index = await _indexState(root, path, operation: operation);
     if (index
         .split('\u0000')
         .any(
@@ -206,44 +271,46 @@ class GitReview {
         '-z',
         '--',
         path,
-      ]);
+      ], operation: operation);
       if (tracked.isEmpty) throw StateError('该文件尚未被 Git 跟踪，请先添加到 Git 后再按块暂存');
     }
-    final diff = await _readDiff(root, path, staged);
-    if (index != await _indexState(root, path)) {
+    final diff = await _readDiff(root, path, staged, operation: operation);
+    if (index != await _indexState(root, path, operation: operation)) {
       throw StateError('Git 索引已变化，请重新加载');
     }
     return GitReview(root, path, staged, GitPatch.parse(diff), index, diff);
   }
 
-  Future<void> apply(Set<int> selected) async {
-    final text = patch.select(selected);
-    if (_index != await _indexState(root, path) ||
-        _diff != await _readDiff(root, path, staged)) {
-      throw StateError('文件或 Git 索引已变化，请重新加载后再选择');
+  Future<void> apply(Set<int> selected, {ProcessOperation? operation}) async {
+    final task = operation ?? ProcessOperation();
+    try {
+      final text = patch.select(selected);
+      if (_index != await _indexState(root, path, operation: task) ||
+          _diff != await _readDiff(root, path, staged, operation: task)) {
+        throw StateError('文件或 Git 索引已变化，请重新加载后再选择');
+      }
+      final result = await task.run(
+        await task.wait(executable(operation: task)),
+        [
+          'apply',
+          '--cached',
+          '--whitespace=nowarn',
+          if (staged) '--reverse',
+          '-',
+        ],
+        workingDirectory: root,
+        environment: _environment,
+        includeParentEnvironment: false,
+        input: latin1.encode(text),
+      );
+      if (result.exitCode != 0) {
+        throw StateError(
+          '暂存操作失败，请刷新确认索引：${utf8.decode(result.stderr as List<int>, allowMalformed: true)}',
+        );
+      }
+    } finally {
+      if (operation == null) task.dispose();
     }
-    final process = await Process.start(
-      await executable(),
-      [
-        'apply',
-        '--cached',
-        '--whitespace=nowarn',
-        if (staged) '--reverse',
-        '-',
-      ],
-      workingDirectory: root,
-      environment: _environment,
-      includeParentEnvironment: false,
-    );
-    final stdout = process.stdout.drain<void>();
-    final stderr = process.stderr.transform(utf8.decoder).join();
-    // 补丁正文使用 Latin-1 字节容器，头部仍为 Git 的 ASCII 引用格式。
-    process.stdin.add(latin1.encode(text));
-    await process.stdin.close();
-    final code = await process.exitCode;
-    await stdout;
-    final error = await stderr;
-    if (code != 0) throw StateError('暂存操作失败，索引未应用此补丁：$error');
   }
 }
 

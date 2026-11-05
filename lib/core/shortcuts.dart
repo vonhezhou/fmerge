@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 enum AppCommand {
+  newCompare,
   open,
   save,
   saveAs,
@@ -42,6 +43,7 @@ enum AppCommand {
 
 extension AppCommandInfo on AppCommand {
   String get label => const {
+    AppCommand.newCompare: '新建文本比较',
     AppCommand.open: '打开比较',
     AppCommand.save: '保存',
     AppCommand.saveAs: '另存为',
@@ -196,6 +198,10 @@ class KeyBinding {
 }
 
 final defaultBindings = <AppCommand, KeyBinding>{
+  AppCommand.newCompare: const KeyBinding(
+    LogicalKeyboardKey.keyN,
+    primary: true,
+  ),
   AppCommand.toggleWordWrap: const KeyBinding(
     LogicalKeyboardKey.keyZ,
     primary: true,

@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
-import 'package:path/path.dart' as p;
 
 import '../core/disk_check.dart';
+import '../core/file_watch.dart';
+import '../core/process_operation.dart';
 import 'session_files.dart';
 
 import 'package:file_selector/file_selector.dart';
@@ -37,6 +38,7 @@ import 'go_to_line_dialog.dart';
 import 'base_dialog.dart';
 import 'welcome_view.dart';
 import 'git_review_dialog.dart';
+import 'merge_files_dialog.dart';
 
 part 'workbench_files.dart';
 
@@ -83,7 +85,19 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   String? _notice;
   int? _invocationResult;
   bool _choosingFiles = false;
-  Timer? _recoveryTimer;
+  late final _recoveryScheduler = RecoveryScheduler(
+    save: () async {
+      if (mounted && settings.crashRecovery && session?.dirty == true) {
+        await _recovery.save(session!.recoverySnapshot());
+      }
+    },
+    onError: (e) {
+      if (mounted) _message('保存恢复快照失败：$e');
+    },
+  );
+  late final _fileWatch = FileWatchMonitor(() => unawaited(_checkDisk()));
+  bool _diskCheckPending = false;
+  ProcessOperation? _stageOperation;
   String? _adoptedRecovery;
   late final _recovery = RecoveryStore(
     settings.storageDirectory ?? Settings.directory,
@@ -202,7 +216,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       ? _resultFind
       : _rightFind;
   void _attach(CompareSession next) {
-    _recoveryTimer?.cancel();
+    _stageOperation?.cancel();
+    _recoveryScheduler.reset();
     _recoveryState = null;
     if (widget.nativeWindow && settings.persist) unawaited(_clearRecovery());
     final old = session;
@@ -236,6 +251,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       context: settings.contextLines,
     );
     next.refresh(settings.comparison);
+    _watchFiles();
     settings.remember(
       next.left.path,
       next.right.path,
@@ -281,6 +297,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   void _changed() {
     if (!mounted) return;
     _scheduleRecovery();
+    _watchFiles();
     setState(() {
       if (session?.diff != null) {
         _hunk = _hunk.clamp(
@@ -352,6 +369,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   }
 
   Future<void> _close() async {
+    if (_stageOperation != null) {
+      _stageOperation!.cancel();
+      return;
+    }
     if (_closing ||
         _saving ||
         _opening ||
@@ -368,7 +389,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         _invocationResult ??
         session?.toolExitCode ??
         (widget.startupError == null ? 0 : 1);
-    _recoveryTimer?.cancel();
+    _recoveryScheduler.reset();
     if (widget.nativeWindow && settings.persist) await _clearRecovery();
     if (widget.onExit != null) {
       widget.onExit!(code);
@@ -390,12 +411,33 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   final _diskCheck = DiskCheck();
 
+  void _watchFiles() {
+    if (!widget.nativeWindow) return;
+    final current = session;
+    unawaited(
+      _fileWatch.update([
+        if (current != null)
+          for (final file in [
+            current.left,
+            current.right,
+            ?current.base,
+            ?current.output,
+          ])
+            if (file.path != null) file.path!,
+      ]),
+    );
+  }
+
   Future<void> _checkDisk() async {
+    if (_saving || _opening) {
+      _diskCheckPending = true;
+      return;
+    }
+    _diskCheckPending = false;
     final current = session;
     if (current == null) return;
     try {
-      final revision = current.revision;
-      final changed = await _diskCheck.changed([
+      List<(String, String)> baselines() => [
         for (final file in [
           current.left,
           current.right,
@@ -404,8 +446,15 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         ])
           if (file.path != null && file.digest != null)
             (file.path!, file.digest!),
-      ]);
-      if (current.revision != revision) return;
+      ];
+      final before = baselines();
+      final changed = await _diskCheck.changed(before);
+      final after = baselines();
+      if (before.length != after.length ||
+          !Iterable<int>.generate(before.length)
+              .every((i) => before[i] == after[i])) {
+        return;
+      }
       if (mounted && current == session) setState(() => _diskChanged = changed);
     } catch (_) {
       /* 保存路径仍执行独立外部改动校验，焦点检查不打断编辑。 */
@@ -505,7 +554,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     } catch (e) {
       _message('打开失败：$e');
     } finally {
-      if (mounted) setState(() => _opening = false);
+      if (mounted) {
+        setState(() => _opening = false);
+        if (_diskCheckPending) unawaited(_checkDisk());
+      }
     }
   }
 
@@ -658,7 +710,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       _message('保存失败：$e');
       return false;
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+        if (_diskCheckPending) unawaited(_checkDisk());
+      }
     }
   }
 
@@ -882,9 +937,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       return;
     }
     final text = controller.text;
+    final operation = _stageOperation = ProcessOperation();
     setState(() => _staging = true);
     try {
-      final review = await GitReview.open(file.path!);
+      final review = await GitReview.open(file.path!, operation: operation);
       final disk = await TextFile.read(file.path!, encoding: file.encoding);
       if (disk.text != text || controller.text != text) {
         throw StateError('文件内容已变化，请保存或重新加载后再暂存');
@@ -894,7 +950,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         _message('所选行没有未暂存修改；请选择修改过的代码块');
         return;
       }
-      await review.apply(hunks);
+      await review.apply(hunks, operation: operation);
       _message('已暂存 ${hunks.length} 个 Git 差异块，其余修改保留在工作区');
     } catch (error) {
       if (!mounted) return;
@@ -922,6 +978,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         ),
       );
     } finally {
+      operation.dispose();
+      _stageOperation = null;
       if (mounted) setState(() => _staging = false);
     }
   }
@@ -996,7 +1054,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     } catch (error) {
       _message('重新读取失败：$error');
     } finally {
-      if (mounted) setState(() => _opening = false);
+      if (mounted) {
+        setState(() => _opening = false);
+        if (_diskCheckPending) unawaited(_checkDisk());
+      }
     }
   }
 
@@ -1043,7 +1104,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   bool _enabled(AppCommand command) {
     final s = session;
     return switch (command) {
-      AppCommand.open => !_opening && !_saving && !_choosingFiles,
+      AppCommand.open ||
+      AppCommand.newCompare => !_opening && !_saving && !_choosingFiles,
       AppCommand.save ||
       AppCommand.saveAs => s != null && !s.readOnly && !_saving,
       AppCommand.reload =>
@@ -1087,6 +1149,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       return;
     }
     switch (command) {
+      case AppCommand.newCompare:
+        _newCompare();
       case AppCommand.open:
         _open();
       case AppCommand.save:
@@ -1209,7 +1273,10 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   @override
   void dispose() {
-    _recoveryTimer?.cancel();
+    _recoveryScheduler.dispose();
+    _fileWatch.dispose();
+    _stageOperation?.cancel();
+    if (widget.nativeWindow && settings.persist) unawaited(_recovery.close());
     settings.removeListener(_appearanceChanged);
     if (widget.nativeWindow) {
       windowManager.removeListener(this);
@@ -1249,6 +1316,13 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               if (session?.isMerge == true) _mergeContext(),
               if (_notice != null)
                 _banner(_notice!, () => setState(() => _notice = null)),
+              if (_stageOperation != null)
+                _banner(
+                  '正在暂存所选代码块…',
+                  () => _stageOperation?.cancel(),
+                  action: () => _stageOperation?.cancel(),
+                  actionLabel: '取消操作',
+                ),
               if (_diskChanged)
                 _banner(
                   '磁盘文件发生变化。保存前会再次检查，避免覆盖其他程序的修改。',
@@ -1358,6 +1432,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     return [
       _WorkbenchMenu('文件', [
         [
+          command(AppCommand.newCompare),
           command(AppCommand.open, label: '打开比较…'),
           _MenuEntry(
             'open-merge',
@@ -2486,9 +2561,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   );
   Widget _welcome() => WelcomeView(
     onCompare: () => _open(),
-    onPaste: () => setState(
-      () => _attach(CompareSession(TextFile.empty(), TextFile.empty())),
-    ),
+    onPaste: _newCompare,
     recent: settings.recent,
     onRecent: (r) => _open(
       options: LaunchOptions(
@@ -2567,31 +2640,32 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     );
   }
 
-  Widget _banner(String text, VoidCallback dismiss, {VoidCallback? action}) =>
-      Container(
-        color: AppPalette.of(context).conflictBg,
-        padding: const EdgeInsets.only(left: 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppPalette.of(context).amber,
-                ),
-              ),
-            ),
-            if (action != null)
-              TextButton(onPressed: action, child: const Text('重新加载')),
-            IconButton(
-              tooltip: '关闭提示',
-              onPressed: dismiss,
-              icon: const Icon(Icons.close, size: 16),
-            ),
-          ],
+  Widget _banner(
+    String text,
+    VoidCallback dismiss, {
+    VoidCallback? action,
+    String actionLabel = '重新加载',
+  }) => Container(
+    color: AppPalette.of(context).conflictBg,
+    padding: const EdgeInsets.only(left: 14),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(fontSize: 12, color: AppPalette.of(context).amber),
+          ),
         ),
-      );
+        if (action != null)
+          TextButton(onPressed: action, child: Text(actionLabel)),
+        IconButton(
+          tooltip: '关闭提示',
+          onPressed: dismiss,
+          icon: const Icon(Icons.close, size: 16),
+        ),
+      ],
+    ),
+  );
   void _about() => showAboutDialog(
     context: context,
     applicationName: 'fmerge',

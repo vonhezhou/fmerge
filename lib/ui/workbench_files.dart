@@ -2,33 +2,46 @@ part of 'workbench.dart';
 
 /// 文件入口与恢复流程集中在此，所有会话替换仍经过未保存保护。
 extension _WorkbenchFiles on _WorkbenchState {
+  Future<void> _newCompare() async {
+    if (_opening || _saving || _choosingFiles) return;
+    _update(() => _opening = true);
+    try {
+      if (!await _leave() || !mounted) return;
+      _update(
+        () => _attach(CompareSession(TextFile.empty(), TextFile.empty())),
+      );
+    } finally {
+      if (mounted) _update(() => _opening = false);
+    }
+  }
+
   Future<void> _openMerge() async {
     if (_opening || _saving || _choosingFiles) return;
     _update(() => _choosingFiles = true);
     LaunchOptions? options;
     try {
-      final paths = <String>[];
-      for (final label in ['选择共同祖先', '选择左侧输入', '选择右侧输入']) {
-        final file = await openFile(confirmButtonText: label);
-        if (file == null || !mounted) return;
-        paths.add(file.path);
-        if (widget.nativeWindow) {
-          await DirectoryAccess.rememberFiles([file.path]);
-        }
-      }
-      final output = await getSaveLocation(
-        suggestedName: 'merged-${p.basename(paths[1])}',
-        confirmButtonText: '选择合并结果位置',
+      final recent = <LaunchOptions>[
+        for (final r in settings.recent)
+          if (r['base'] is String &&
+              r['left'] is String &&
+              r['right'] is String)
+            LaunchOptions(
+              base: r['base'],
+              left: r['left'],
+              right: r['right'],
+              output: r['output'] is String ? r['output'] : null,
+            ),
+      ];
+      options = await showDialog<LaunchOptions>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => MergeFilesDialog(
+          recent: recent,
+          onFileSelected: widget.nativeWindow
+              ? (path) => DirectoryAccess.rememberFiles([path])
+              : null,
+        ),
       );
-      if (output == null || !mounted) return;
-      options = LaunchOptions(
-        base: paths[0],
-        left: paths[1],
-        right: paths[2],
-        output: output.path,
-      );
-    } catch (e) {
-      _message('选择合并文件失败：$e');
     } finally {
       if (mounted) _update(() => _choosingFiles = false);
     }
@@ -182,19 +195,12 @@ extension _WorkbenchFiles on _WorkbenchState {
     final state = (s, s?.revision, s?.dirty ?? false, settings.crashRecovery);
     if (_recoveryState == state) return;
     _recoveryState = state;
-    _recoveryTimer?.cancel();
     if (!settings.crashRecovery || s?.dirty != true) {
+      _recoveryScheduler.reset();
       unawaited(_clearRecovery(includeAdopted: s?.dirty != true));
       return;
     }
-    _recoveryTimer = Timer(const Duration(milliseconds: 900), () async {
-      if (!mounted || !identical(session, s) || !settings.crashRecovery) return;
-      try {
-        await _recovery.save(s!.recoverySnapshot());
-      } catch (e) {
-        if (mounted) _message('保存恢复快照失败：$e');
-      }
-    });
+    _recoveryScheduler.schedule();
   }
 
   Future<void> _clearRecovery({bool includeAdopted = true}) async {
@@ -259,9 +265,13 @@ extension _WorkbenchFiles on _WorkbenchState {
                       tooltip: '删除恢复记录',
                       icon: const Icon(Icons.delete_outline),
                       onPressed: () async {
-                        await _recovery.remove(record.id);
-                        if (context.mounted) {
-                          update(() => records.remove(record));
+                        try {
+                          await _recovery.remove(record.id);
+                          if (context.mounted) {
+                            update(() => records.remove(record));
+                          }
+                        } catch (e) {
+                          _message('删除恢复记录失败：$e');
                         }
                       },
                     ),
