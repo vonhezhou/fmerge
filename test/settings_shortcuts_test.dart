@@ -231,15 +231,18 @@ void main() {
         lessThan(settingsRect.left),
       );
     }
-    await tester.tap(find.byTooltip('视图'));
-    await tester.pumpAndSettle();
-    for (final key in ['ignoreWhitespace', 'contextOnly']) {
-      final item = find.byKey(ValueKey('command-$key'));
+    for (final (menu, command) in [
+      ('比较', 'ignoreWhitespace'),
+      ('视图', 'contextOnly'),
+    ]) {
+      await tester.tap(find.byKey(ValueKey('menu-$menu')));
+      await tester.pumpAndSettle();
+      final item = find.byKey(ValueKey('menu-command-$command'));
       await tester.ensureVisible(item);
       expect(item.hitTestable(), findsOneWidget);
+      await tester.tapAt(const Offset(10, 300));
+      await tester.pumpAndSettle();
     }
-    await tester.tapAt(const Offset(10, 300));
-    await tester.pumpAndSettle();
     first.rightEditor.text = '${first.rightEditor.text}\nedited';
     await tester.pump(const Duration(milliseconds: 170));
     await waitUntil(tester, () => !first.busy);

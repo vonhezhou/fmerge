@@ -17,11 +17,14 @@ class ToolbarAction extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool showLabel, selected;
 
+  static double widthFor(String label, bool showLabel) =>
+      showLabel ? (label.length > 4 ? 60 : 50) : 34;
+
   @override
   Widget build(BuildContext context) => Tooltip(
     message: tooltip,
     child: SizedBox(
-      width: showLabel ? (label.length > 4 ? 60 : 50) : 34,
+      width: widthFor(label, showLabel),
       height: showLabel ? 58 : 34,
       child: TextButton(
         onPressed: onPressed,

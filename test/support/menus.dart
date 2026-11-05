@@ -6,9 +6,9 @@ Future<void> chooseMenuCommand(
   String command, {
   String menu = '视图',
 }) async {
-  await tester.tap(find.byTooltip(menu));
+  await tester.tap(find.byKey(ValueKey('menu-$menu')));
   await tester.pumpAndSettle();
-  final item = find.byKey(ValueKey('command-$command'));
+  final item = find.byKey(ValueKey('menu-command-$command'));
   await tester.ensureVisible(item);
   await tester.tap(item);
   await tester.pumpAndSettle();

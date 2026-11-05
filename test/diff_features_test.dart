@@ -200,10 +200,10 @@ void main() {
       true,
     );
     expect(s.dirty, false);
-    await chooseMenuCommand(tester, 'toggleWordDiff');
+    await chooseMenuCommand(tester, 'toggleWordDiff', menu: '比较');
     await tester.pumpAndSettle();
     expect(s.options.inlineMode, InlineDiffMode.words);
-    await chooseMenuCommand(tester, 'toggleMovedBlocks');
+    await chooseMenuCommand(tester, 'toggleMovedBlocks', menu: '比较');
     await tester.pumpAndSettle();
     expect(s.diff!.movedBlocks, isEmpty);
     expect(s.dirty, false);

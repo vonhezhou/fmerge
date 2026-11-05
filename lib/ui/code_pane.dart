@@ -118,28 +118,30 @@ class LanguageMenu extends StatelessWidget {
       ],
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 95),
-                child: Text(
-                  value == null ? '自动 · $label' : label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppPalette.of(context).muted,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 95),
+                  child: Text(
+                    value == null ? '自动 · $label' : label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppPalette.of(context).muted,
+                    ),
                   ),
                 ),
               ),
-            ),
-            Icon(
-              Icons.arrow_drop_down,
-              size: 16,
-              color: AppPalette.of(context).muted,
-            ),
-          ],
+              Icon(
+                Icons.arrow_drop_down,
+                size: constraints.maxWidth.clamp(0.0, 16.0),
+                color: AppPalette.of(context).muted,
+              ),
+            ],
+          ),
         ),
       ),
     );

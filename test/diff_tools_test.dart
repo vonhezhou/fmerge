@@ -115,13 +115,13 @@ void main() {
     expect(s.conflictDetails(0), isNull);
   });
 
-  desktopTest('行内导航选中片段，详情同步且工具栏复制真实文本，左侧锁定禁用粘贴', (tester) async {
+  desktopTest('行内导航与编辑菜单操作当前文档，左侧锁定禁用剪切和粘贴', (tester) async {
     final s = session('header\na OLD b OLD2\nend', 'header\na NEW b NEW2\nend');
     await tester.pumpWidget(
       FmergeApp(settings: Settings(persist: false), initial: s),
     );
     await tester.pumpAndSettle();
-    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '更多操作');
+    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '导航');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selection.startIndex, 1);
     expect(s.rightEditor.selectedText, 'NEW');
@@ -129,11 +129,11 @@ void main() {
       tester.widget<LineDetails>(find.byType(LineDetails)).row!.left,
       'a OLD b OLD2',
     );
-    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '更多操作');
+    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '导航');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selectedText, 'NEW');
     expect(s.rightEditor.selection.startOffset, greaterThan(6));
-    await chooseMenuCommand(tester, 'previousInlineDiff', menu: '更多操作');
+    await chooseMenuCommand(tester, 'previousInlineDiff', menu: '导航');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selection.startOffset, 2);
     String? copied;
@@ -146,9 +146,17 @@ void main() {
         return null;
       },
     );
-    await chooseMenuCommand(tester, 'copy', menu: '更多操作');
+    await chooseMenuCommand(tester, 'copy', menu: '编辑');
     await tester.pumpAndSettle();
     expect(copied, 'NEW');
+    final original = s.rightEditor.text;
+    await chooseMenuCommand(tester, 'selectAll', menu: '编辑');
+    expect(s.rightEditor.selectedText, original);
+    await chooseMenuCommand(tester, 'cut', menu: '编辑');
+    expect(copied, original);
+    expect(s.rightEditor.text, '');
+    await chooseMenuCommand(tester, 'undo', menu: '编辑');
+    expect(s.rightEditor.text, original);
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
       null,
@@ -159,15 +167,23 @@ void main() {
         .focus
         .requestFocus();
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('更多操作'));
+    await tester.tap(find.byKey(const ValueKey('menu-编辑')));
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<PopupMenuItem<String>>(
-            find.byKey(const ValueKey('command-paste')),
+          .widget<MenuItemButton>(
+            find.byKey(const ValueKey('menu-command-paste')),
           )
-          .enabled,
-      false,
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<MenuItemButton>(
+            find.byKey(const ValueKey('menu-command-cut')),
+          )
+          .onPressed,
+      isNull,
     );
     expect(tester.takeException(), isNull);
   });

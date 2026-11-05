@@ -29,8 +29,8 @@ Future<void> ready(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('最小窗口中核心工具直接可用，显示选项折叠后仍保留文档', (tester) async {
-    tester.view.physicalSize = const Size(920, 680);
+  testWidgets('宽窗口中常用开关可直接操作并保持状态与文档', (tester) async {
+    tester.view.physicalSize = const Size(1600, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -57,15 +57,32 @@ void main() {
         findsOneWidget,
       );
     }
-    expect(
-      find.byKey(const ValueKey('view-menu')).hitTestable(),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('menu-视图')).hitTestable(), findsOneWidget);
+    for (final menu in ['文件', '编辑', '视图', '导航', '比较', '工具', '帮助']) {
+      expect(find.byKey(ValueKey('menu-$menu')).hitTestable(), findsOneWidget);
+    }
     expect(tester.getTopLeft(find.byType(CodePane).first).dy, 108);
-    await chooseMenuCommand(tester, 'contextOnly');
-    await tester.pumpAndSettle();
+    for (final command in [
+      'ignoreWhitespace',
+      'contextOnly',
+      'toggleWordWrap',
+      'showWhitespace',
+    ]) {
+      final button = find.byKey(ValueKey('command-$command'));
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      expect(button.hitTestable(), findsOneWidget);
+      expect(tester.widget<ToolbarAction>(button).selected, false);
+      await tester.tap(button);
+      await ready(tester);
+      expect(tester.widget<ToolbarAction>(button).selected, true);
+    }
     expect(s.contextOnly, true);
     expect(s.rightEditor.text, changed.join('\n'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('command-toggleLeftEdit')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('command-toggleLeftEdit')));
     await tester.pumpAndSettle();
     expect(
@@ -73,6 +90,56 @@ void main() {
       false,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('缩放窗口收起和恢复快捷入口，隐藏操作仍可从分类菜单执行', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final settings = Settings(persist: false);
+    final s = CompareSession(TextFile.empty('left'), TextFile.empty('right'));
+    tester.view.physicalSize = const Size(1600, 800);
+    await tester.pumpWidget(FmergeApp(settings: settings, initial: s));
+    await ready(tester);
+    for (final width in [1600.0, 920.0, 640.0, 1600.0]) {
+      tester.view.physicalSize = Size(width, 800);
+      await tester.pumpAndSettle();
+      final toolbar = find.byKey(const ValueKey('workbench-toolbar'));
+      expect(tester.getSize(toolbar).height, width >= 1280 ? 66 : 44);
+      expect(settings.toolbarLabels, true);
+      expect(
+        find.byKey(const ValueKey('command-showWhitespace')),
+        width >= 1280 ? findsOneWidget : findsNothing,
+      );
+      for (final menu in ['文件', '编辑', '视图', '导航', '比较', '工具', '帮助']) {
+        expect(
+          find.byKey(ValueKey('menu-$menu')).hitTestable(),
+          findsOneWidget,
+        );
+      }
+      expect(
+        tester.getRect(find.byKey(const ValueKey('menu-帮助'))).right,
+        lessThan(
+          tester.getRect(find.byKey(const ValueKey('command-save'))).left,
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    }
+    tester.view.physicalSize = const Size(640, 800);
+    await tester.pumpAndSettle();
+    await chooseMenuCommand(tester, 'showWhitespace');
+    expect(settings.showWhitespace, true);
+    expect(s.rightEditor.text, 'right');
+    tester.view.physicalSize = const Size(1600, 800);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ToolbarAction>(
+            find.byKey(const ValueKey('command-showWhitespace')),
+          )
+          .selected,
+      true,
+    );
   });
 
   testWidgets('跳转行校验范围并保持对话框，成功后恢复目标编辑器焦点', (tester) async {
@@ -303,10 +370,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 170));
     await ready(tester);
     expect(s.diff!.changes.length, 1);
-    await chooseMenuCommand(tester, 'ignoreWhitespace');
+    await chooseMenuCommand(tester, 'ignoreWhitespace', menu: '比较');
     await ready(tester);
     expect(s.diff!.changes, isEmpty);
-    await chooseMenuCommand(tester, 'ignoreWhitespace');
+    await chooseMenuCommand(tester, 'ignoreWhitespace', menu: '比较');
     await ready(tester);
     expect(s.diff!.changes.length, 1);
     expect(tester.takeException(), isNull);
@@ -350,6 +417,19 @@ void main() {
       await tester.tap(find.widgetWithText(OutlinedButton, labels.rightAction));
       await tester.pumpAndSettle();
       expect(s.resultEditor!.text, 'RIGHT');
+      await chooseMenuCommand(tester, 'choose-base', menu: '合并');
+      expect(s.resultEditor!.text, 'BASE');
+      expect(s.pending, 0);
+      tester
+          .widgetList<CodePane>(find.byType(CodePane))
+          .last
+          .focus
+          .requestFocus();
+      await tester.pumpAndSettle();
+      await chooseMenuCommand(tester, 'undo', menu: '编辑');
+      expect(s.resultEditor!.text, 'RIGHT');
+      await chooseMenuCommand(tester, 'redo', menu: '编辑');
+      expect(s.resultEditor!.text, 'BASE');
       await tester.tap(find.byTooltip('查看合并来源与角色'));
       await tester.pumpAndSettle();
       expect(find.textContaining('ours / current / LOCAL'), findsOneWidget);
@@ -422,7 +502,7 @@ void main() {
     await tester.pump();
     expect(find.textContaining('请先确认剩余'), findsOneWidget);
     expect(s.savedMerge, false);
-    await tester.tap(find.byTooltip('更多操作'));
+    await tester.tap(find.byKey(const ValueKey('menu-文件')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('关闭'));
     await tester.tap(find.text('关闭'));

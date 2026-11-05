@@ -17,6 +17,8 @@ import 'package:fmerge/ui/code_pane.dart';
 import 'package:fmerge/ui/document_status.dart';
 import 'package:fmerge/ui/toolbar_action.dart';
 
+import 'support/menus.dart';
+
 Future<void> waitUntil(WidgetTester tester, bool Function() ready) async {
   await tester.runAsync(() async {
     final deadline = DateTime.now().add(const Duration(seconds: 10));
@@ -56,13 +58,13 @@ void main() {
     s.rightEditor.text = 'unsaved';
     await tester.pump(const Duration(milliseconds: 170));
     right.writeAsStringSync('external');
-    await tester.tap(find.byKey(const ValueKey('command-reload')));
+    await chooseMenuCommand(tester, 'reload', menu: '文件');
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(s.rightEditor.text, 'unsaved');
     expect(right.readAsStringSync(), 'external');
-    await tester.tap(find.byKey(const ValueKey('command-reload')));
+    await chooseMenuCommand(tester, 'reload', menu: '文件');
     await tester.pumpAndSettle();
     await tester.tap(find.text('不保存'));
     await waitUntil(
@@ -162,7 +164,7 @@ void main() {
   }
 
   desktopTest('双向采用差异保护锁定的左侧，工具栏文字可隐藏再显示', (tester) async {
-    tester.view.physicalSize = const Size(920, 680);
+    tester.view.physicalSize = const Size(1600, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -187,11 +189,9 @@ void main() {
     expect(s.rightEditor.text, 'right');
     expect(s.leftDirty, true);
     for (final expected in [false, true]) {
-      await tester.tap(find.byTooltip('视图'));
+      await tester.tap(find.byKey(const ValueKey('menu-视图')));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.widgetWithText(CheckedPopupMenuItem<String>, '显示工具栏文字'),
-      );
+      await tester.tap(find.byKey(const ValueKey('menu-command-labels')));
       await tester.pumpAndSettle();
       expect(settings.toolbarLabels, expected);
       expect(

@@ -91,16 +91,38 @@ void main() {
     await ready(s);
     expect(s.leftEditor.diffLayout!.totalRows, s.rightEditor.lineCount);
     await snapshot('diff');
-    await tester.tap(find.byTooltip('视图'));
+    for (final (width, name) in [
+      (1480.0, 'toolbar-wide'),
+      (920.0, 'toolbar-narrow'),
+      (1200.0, 'toolbar-restored'),
+    ]) {
+      await windowManager.setSize(Size(width, 800));
+      await tester.pumpAndSettle();
+      await snapshot(name);
+      expect(tester.takeException(), isNull);
+    }
+    for (final (menu, name) in [
+      ('文件', 'file-menu'),
+      ('编辑', 'edit-menu'),
+      ('导航', 'navigate-menu'),
+      ('比较', 'compare-menu'),
+    ]) {
+      await tester.tap(find.byKey(ValueKey('menu-$menu')));
+      await tester.pumpAndSettle();
+      await snapshot(name);
+      await tester.tapAt(const Offset(20, 600));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byKey(const ValueKey('menu-视图')));
     await tester.pumpAndSettle();
     await snapshot('view-menu');
     // 点选遮罩关闭菜单，避免原生窗口焦点影响合成 Escape 事件。
     await tester.tapAt(const Offset(20, 400));
     await tester.pumpAndSettle();
-    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '更多操作');
+    await chooseMenuCommand(tester, 'nextInlineDiff', menu: '导航');
     await tester.pumpAndSettle();
     expect(s.rightEditor.selection.isCollapsed, false);
-    await chooseMenuCommand(tester, 'copy', menu: '更多操作');
+    await chooseMenuCommand(tester, 'copy', menu: '编辑');
     await tester.pumpAndSettle();
     expect(
       (await Clipboard.getData(Clipboard.kTextPlain))!.text,
@@ -147,6 +169,7 @@ void main() {
     expect(await File('${right.path}.bak').exists(), true);
     debugPrint('STEP: goto shortcut');
     // 原生菜单必须编辑当前对话框字段，不能误改背后的文件。
+    debugPrint('STEP: native dialog edit');
     final savedText = s.rightEditor.text;
     tester.widgetList<CodePane>(panes).last.focus.requestFocus();
     await tester.pump();
@@ -159,11 +182,16 @@ void main() {
     final pathField = find.byType(TextField).first;
     await tester.tap(pathField);
     await tester.pumpAndSettle();
-    await native.invokeMethod<void>('performMenuAction', {'label': '全选'});
+    await native
+        .invokeMethod<void>('performMenuAction', {'label': '全选'})
+        .timeout(const Duration(seconds: 10));
     await Clipboard.setData(
       const ClipboardData(text: '/tmp/native-menu-path.txt'),
     );
-    await native.invokeMethod<void>('performMenuAction', {'label': '粘贴'});
+    await native
+        .invokeMethod<void>('performMenuAction', {'label': '粘贴'})
+        .timeout(const Duration(seconds: 10));
+    debugPrint('STEP: native dialog edited');
     await tester.pumpAndSettle();
     expect(
       tester.widget<TextField>(pathField).controller!.text,
@@ -211,6 +239,16 @@ void main() {
     );
     await ready(merge);
     expect(merge.pending, 1);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('merge-actions'))).height,
+      40,
+    );
+    await snapshot('merge-unresolved');
+    await tester.tap(find.byKey(const ValueKey('menu-合并')));
+    await tester.pumpAndSettle();
+    await snapshot('merge-menu');
+    await tester.tapAt(const Offset(20, 600));
+    await tester.pumpAndSettle();
     expect(merge.toolExitCode, 1);
     final unchangedResult = merge.resultEditor!.text;
     await tester.tap(find.text('查看祖先'));
@@ -495,7 +533,7 @@ void main() {
     await snapshot('goto');
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('更多操作'));
+    await tester.tap(find.byKey(const ValueKey('menu-文件')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('另存为…'));
     await tester.pumpAndSettle();

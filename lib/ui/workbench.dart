@@ -1172,6 +1172,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
+    final menus = _menus();
     Widget body = CallbackShortcuts(
       bindings: {
         for (final command in AppCommand.values)
@@ -1183,7 +1184,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         child: Scaffold(
           body: Column(
             children: [
-              _toolbar(),
+              _toolbar(menus),
               if (session?.isMerge == true) _mergeContext(),
               if (_notice != null)
                 _banner(_notice!, () => setState(() => _notice = null)),
@@ -1223,93 +1224,18 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
               ),
             ],
           ),
-          PlatformMenu(
-            label: '文件',
-            menus: [
-              PlatformMenuItem(
-                label: '打开比较…',
-                onSelected: _settingsOpen ? null : () => _open(),
-                shortcut: _menuShortcut(AppCommand.open),
-              ),
-              PlatformMenuItem(
-                label: '保存',
-                onSelected: () => _save(),
-                shortcut: _menuShortcut(AppCommand.save),
-              ),
-              PlatformMenuItem(
-                label: '另存为…',
-                onSelected: () => _save(saveAs: true),
-                shortcut: _menuShortcut(AppCommand.saveAs),
-              ),
-              PlatformMenuItem(
-                label: '关闭',
-                onSelected: _close,
-                shortcut: _menuShortcut(AppCommand.close),
-              ),
-            ],
-          ),
-          PlatformMenu(
-            label: '编辑',
-            menus: [
-              PlatformMenuItem(
-                label: '撤销',
-                onSelected: () => _editAction(
-                  const CodeShortcutUndoIntent(),
-                  text: const UndoTextIntent(SelectionChangedCause.keyboard),
-                ),
-                shortcut: _menuShortcut(AppCommand.undo),
-              ),
-              PlatformMenuItem(
-                label: '重做',
-                onSelected: () => _editAction(
-                  const CodeShortcutRedoIntent(),
-                  text: const RedoTextIntent(SelectionChangedCause.keyboard),
-                ),
-                shortcut: _menuShortcut(AppCommand.redo),
-              ),
-              PlatformMenuItem(
-                label: '复制',
-                onSelected: () => _editAction(
-                  const CodeShortcutCopyIntent(),
-                  text: CopySelectionTextIntent.copy,
-                ),
-                shortcut: _menuShortcut(AppCommand.copy),
-              ),
-              PlatformMenuItem(
-                label: '剪切',
-                onSelected: () => _editAction(
-                  const CodeShortcutCutIntent(),
-                  text: const CopySelectionTextIntent.cut(
-                    SelectionChangedCause.keyboard,
+          for (final menu in menus)
+            PlatformMenu(
+              label: menu.label,
+              menus: [
+                for (final group in menu.groups)
+                  PlatformMenuItemGroup(
+                    members: [
+                      for (final item in group) _platformMenuItem(item),
+                    ],
                   ),
-                ),
-                shortcut: _menuShortcut(AppCommand.cut),
-              ),
-              PlatformMenuItem(
-                label: '粘贴',
-                onSelected: () => _editAction(
-                  const CodeShortcutPasteIntent(),
-                  text: const PasteTextIntent(SelectionChangedCause.keyboard),
-                ),
-                shortcut: _menuShortcut(AppCommand.paste),
-              ),
-              PlatformMenuItem(
-                label: '全选',
-                onSelected: () => _editAction(
-                  const CodeShortcutSelectAllIntent(),
-                  text: const SelectAllTextIntent(
-                    SelectionChangedCause.keyboard,
-                  ),
-                ),
-                shortcut: _menuShortcut(AppCommand.selectAll),
-              ),
-              PlatformMenuItem(
-                label: '查找…',
-                onSelected: () => _editAction(const CodeShortcutFindIntent()),
-                shortcut: _menuShortcut(AppCommand.find),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
         child: body,
       );
@@ -1323,26 +1249,306 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     String label, {
     bool selected = false,
     String? title,
+    bool? showLabel,
   }) => ToolbarAction(
     key: ValueKey('command-${command.name}'),
     icon: icon,
     label: label,
     tooltip: _shortcutHint(title ?? command.label, command),
     onPressed: _enabled(command) ? () => _runCommand(command) : null,
-    showLabel: settings.toolbarLabels,
+    showLabel: showLabel ?? settings.toolbarLabels,
     selected: selected,
   );
 
-  Widget _menuLabel(String text, AppCommand command) => Row(
-    children: [
-      Expanded(child: Text(text)),
-      const SizedBox(width: 20),
-      Text(
-        settings.shortcuts[command]?.label ?? '',
-        style: TextStyle(fontSize: 10, color: AppPalette.of(context).muted),
+  List<_WorkbenchMenu> _menus() {
+    final s = session;
+    _MenuEntry command(AppCommand command, {String? label, bool? checked}) =>
+        _MenuEntry(
+          command.name,
+          label ?? command.label,
+          command: command,
+          checked: checked,
+          onSelected: _editorCommandEnabled(command)
+              ? () => _runEditorCommand(command)
+              : null,
+        );
+    _MenuEntry rule(String id, String label, bool checked) => _MenuEntry(
+      id,
+      label,
+      checked: checked,
+      onSelected: () => _toggleRule(id),
+    );
+    final regions = s?.merger?.state.regions;
+    final region = regions == null || regions.isEmpty
+        ? null
+        : regions[_conflict.clamp(0, regions.length - 1)];
+    _MenuEntry choice(
+      String id,
+      String label,
+      MergeChoice choice, {
+      bool reverse = false,
+    }) => _MenuEntry(
+      id,
+      label,
+      onSelected: region == null || s!.readOnly
+          ? null
+          : () => s.choose(region.chunk.id, choice, reverse: reverse),
+    );
+    return [
+      _WorkbenchMenu('文件', [
+        [command(AppCommand.open, label: '打开比较…')],
+        [command(AppCommand.save), command(AppCommand.saveAs, label: '另存为…')],
+        [command(AppCommand.reload, label: '从磁盘重新加载')],
+        [command(AppCommand.close, label: '关闭')],
+      ]),
+      _WorkbenchMenu('编辑', [
+        [command(AppCommand.undo), command(AppCommand.redo)],
+        [
+          command(AppCommand.cut),
+          command(AppCommand.copy),
+          command(AppCommand.paste),
+          command(AppCommand.selectAll),
+        ],
+        [
+          command(AppCommand.find, label: '查找…'),
+          command(AppCommand.replace, label: '替换…'),
+        ],
+      ]),
+      _WorkbenchMenu('视图', [
+        [
+          command(AppCommand.toggleOverview, checked: settings.showOverview),
+          command(
+            AppCommand.toggleLineDetails,
+            checked: settings.showLineDetails,
+          ),
+        ],
+        [
+          command(AppCommand.toggleWordWrap, checked: settings.wordWrap),
+          command(
+            AppCommand.contextOnly,
+            checked: s?.contextOnly ?? settings.contextOnly,
+          ),
+          command(AppCommand.showWhitespace, checked: settings.showWhitespace),
+          rule('highlight', '语法高亮', settings.highlight),
+        ],
+        [
+          _MenuEntry(
+            'labels',
+            '显示工具栏文字',
+            checked: settings.toolbarLabels,
+            onSelected: () {
+              setState(() => settings.toolbarLabels = !settings.toolbarLabels);
+              _saveSettings();
+            },
+          ),
+        ],
+      ]),
+      _WorkbenchMenu('导航', [
+        [command(AppCommand.goToLine, label: '跳转到行…')],
+        [command(AppCommand.previousDiff), command(AppCommand.nextDiff)],
+        [
+          command(AppCommand.previousInlineDiff),
+          command(AppCommand.nextInlineDiff),
+        ],
+        if (s?.isMerge == true)
+          [
+            command(AppCommand.previousConflict),
+            command(AppCommand.nextConflict),
+          ],
+      ]),
+      _WorkbenchMenu(s?.isMerge == true ? '合并' : '比较', [
+        if (s?.isMerge == true) ...[
+          [_MenuEntry('base', '查看共同祖先…', onSelected: _showBase)],
+          [
+            choice('choose-left', s!.mergeLabels.leftAction, MergeChoice.left),
+            choice(
+              'choose-right',
+              s.mergeLabels.rightAction,
+              MergeChoice.right,
+            ),
+            choice('choose-base', '保留祖先', MergeChoice.base),
+          ],
+          [
+            choice('both-left', '组合：左侧在前，右侧在后', MergeChoice.both),
+            choice(
+              'both-right',
+              '组合：右侧在前，左侧在后',
+              MergeChoice.both,
+              reverse: true,
+            ),
+            _MenuEntry(
+              'resolved',
+              region?.resolved == true ? '标记为未处理' : '标记为已手工解决',
+              onSelected: region == null || s.readOnly
+                  ? null
+                  : () => s.markResolved(region.chunk.id, !region.resolved),
+            ),
+          ],
+        ] else ...[
+          [
+            command(AppCommand.swapSides),
+            command(AppCommand.toggleLeftEdit, checked: _leftEditable),
+          ],
+          [
+            command(AppCommand.takeLeft),
+            command(AppCommand.takeRight),
+            for (final (id, label, order) in [
+              ('both-left', '组合：左侧在前，右侧在后', 1),
+              ('both-right', '组合：右侧在前，左侧在后', 2),
+            ])
+              _MenuEntry(
+                id,
+                label,
+                onSelected: _enabled(AppCommand.takeLeft)
+                    ? () => s!.applyHunk(_hunk, combine: order)
+                    : null,
+              ),
+          ],
+        ],
+        [
+          command(
+            AppCommand.ignoreWhitespace,
+            checked: settings.ignoreWhitespace,
+          ),
+          rule('case', '忽略大小写', settings.ignoreCase),
+          rule('eol', '忽略换行符差异', settings.ignoreEol),
+        ],
+        [
+          command(
+            AppCommand.toggleWordDiff,
+            checked: settings.inlineMode == InlineDiffMode.words,
+          ),
+          command(AppCommand.toggleMovedBlocks, checked: settings.detectMoves),
+        ],
+      ]),
+      _WorkbenchMenu('工具', [
+        [
+          command(AppCommand.settings, label: '设置…'),
+          command(AppCommand.gitSettings, label: 'Git 集成…'),
+        ],
+      ]),
+      _WorkbenchMenu('帮助', [
+        [_MenuEntry('about', '关于 fmerge', onSelected: _about)],
+      ]),
+    ];
+  }
+
+  Widget _menuBar(List<_WorkbenchMenu> menus, bool showLabels) {
+    final colors = AppPalette.of(context);
+    return MenuBar(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(colors.bg),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: const WidgetStatePropertyAll(0),
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        shape: const WidgetStatePropertyAll(RoundedRectangleBorder()),
       ),
-    ],
-  );
+      children: [
+        for (final menu in menus)
+          SubmenuButton(
+            key: ValueKey('menu-${menu.label}'),
+            style: TextButton.styleFrom(
+              fixedSize: Size(
+                ToolbarAction.widthFor(menu.label, showLabels),
+                showLabels ? 58 : 34,
+              ),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+              foregroundColor: colors.muted,
+            ),
+            menuStyle: MenuStyle(
+              backgroundColor: WidgetStatePropertyAll(colors.elevated),
+              surfaceTintColor: const WidgetStatePropertyAll(
+                Colors.transparent,
+              ),
+              side: WidgetStatePropertyAll(BorderSide(color: colors.border)),
+            ),
+            menuChildren: [
+              for (var i = 0; i < menu.groups.length; i++) ...[
+                if (i > 0) const Divider(height: 9),
+                for (final item in menu.groups[i])
+                  MenuItemButton(
+                    key: ValueKey('menu-command-${item.id}'),
+                    onPressed: item.onSelected,
+                    shortcut: item.command == null
+                        ? null
+                        : _menuShortcut(item.command!),
+                    style: const ButtonStyle(
+                      minimumSize: WidgetStatePropertyAll(Size(280, 32)),
+                      textStyle: WidgetStatePropertyAll(
+                        TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    leadingIcon: SizedBox(
+                      width: 16,
+                      child: item.checked == true
+                          ? const Icon(Icons.check, size: 16)
+                          : null,
+                    ),
+                    child: Text(item.label),
+                  ),
+              ],
+            ],
+            child: Tooltip(
+              message: menu.label,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(menu.icon, size: 19),
+                  if (showLabels) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      menu.label,
+                      maxLines: 1,
+                      style: const TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  PlatformMenuItem _platformMenuItem(_MenuEntry item) {
+    final command = item.command;
+    // 系统菜单仍须编辑当前对话框字段，不能把操作发送给背后的文档。
+    final edit = switch (command) {
+      AppCommand.undo => () => _editAction(
+        const CodeShortcutUndoIntent(),
+        text: const UndoTextIntent(SelectionChangedCause.keyboard),
+      ),
+      AppCommand.redo => () => _editAction(
+        const CodeShortcutRedoIntent(),
+        text: const RedoTextIntent(SelectionChangedCause.keyboard),
+      ),
+      AppCommand.copy => () => _editAction(
+        const CodeShortcutCopyIntent(),
+        text: CopySelectionTextIntent.copy,
+      ),
+      AppCommand.cut => () => _editAction(
+        const CodeShortcutCutIntent(),
+        text: const CopySelectionTextIntent.cut(SelectionChangedCause.keyboard),
+      ),
+      AppCommand.paste => () => _editAction(
+        const CodeShortcutPasteIntent(),
+        text: const PasteTextIntent(SelectionChangedCause.keyboard),
+      ),
+      AppCommand.selectAll => () => _editAction(
+        const CodeShortcutSelectAllIntent(),
+        text: const SelectAllTextIntent(SelectionChangedCause.keyboard),
+      ),
+      _ => null,
+    };
+    final modal = ModalRoute.of(context)?.isCurrent == false;
+    return PlatformMenuItem(
+      label: '${item.checked == true ? '✓ ' : ''}${item.label}',
+      shortcut: command == null ? null : _menuShortcut(command),
+      onSelected: modal ? edit : item.onSelected,
+    );
+  }
 
   void _toggleRule(String value) {
     switch (value) {
@@ -1358,218 +1564,31 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     _saveSettings();
   }
 
-  Widget _menuFace(IconData icon, String label) => SizedBox(
-    width: settings.toolbarLabels ? 50 : 34,
-    height: settings.toolbarLabels ? 58 : 34,
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, size: 19, color: AppPalette.of(context).muted),
-        if (settings.toolbarLabels) ...[
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(color: AppPalette.of(context).muted, fontSize: 10),
-          ),
-        ],
-      ],
-    ),
-  );
-
-  Widget _viewMenu() {
-    CheckedPopupMenuItem<String> command(
-      AppCommand command,
-      String label,
-      bool checked,
-    ) => CheckedPopupMenuItem(
-      key: ValueKey('command-${command.name}'),
-      height: 36,
-      value: command.name,
-      enabled: _enabled(command),
-      checked: checked,
-      child: _menuLabel(label, command),
-    );
-    return PopupMenuButton<String>(
-      key: const ValueKey('view-menu'),
-      tooltip: '视图',
-      constraints: const BoxConstraints(minWidth: 300, maxWidth: 430),
-      onSelected: (value) {
-        switch (value) {
-          case 'labels':
-            setState(() => settings.toolbarLabels = !settings.toolbarLabels);
-            _saveSettings();
-          case 'case' || 'eol' || 'highlight':
-            _toggleRule(value);
-          default:
-            _runCommand(AppCommand.values.byName(value));
-        }
-      },
-      itemBuilder: (_) => [
-        command(AppCommand.toggleOverview, '差异概览条', settings.showOverview),
-        command(
-          AppCommand.toggleLineDetails,
-          '底部行详情',
-          settings.showLineDetails,
-        ),
-        command(AppCommand.toggleWordWrap, '长行自动换行', settings.wordWrap),
-        command(
-          AppCommand.contextOnly,
-          '仅显示差异及附近行',
-          session?.contextOnly ?? settings.contextOnly,
-        ),
-        const PopupMenuDivider(height: 8),
-        command(
-          AppCommand.toggleWordDiff,
-          '按单词显示行内差异',
-          settings.inlineMode == InlineDiffMode.words,
-        ),
-        command(AppCommand.toggleMovedBlocks, '识别移动代码块', settings.detectMoves),
-        command(
-          AppCommand.ignoreWhitespace,
-          '忽略行首、行尾空白',
-          settings.ignoreWhitespace,
-        ),
-        CheckedPopupMenuItem(
-          height: 36,
-          value: 'case',
-          checked: settings.ignoreCase,
-          child: const Text('忽略大小写'),
-        ),
-        CheckedPopupMenuItem(
-          height: 36,
-          value: 'eol',
-          checked: settings.ignoreEol,
-          child: const Text('忽略换行符差异'),
-        ),
-        const PopupMenuDivider(height: 8),
-        command(AppCommand.showWhitespace, '显示空白字符', settings.showWhitespace),
-        CheckedPopupMenuItem(
-          height: 36,
-          value: 'highlight',
-          checked: settings.highlight,
-          child: const Text('语法高亮'),
-        ),
-        CheckedPopupMenuItem(
-          height: 36,
-          value: 'labels',
-          checked: settings.toolbarLabels,
-          child: const Text('显示工具栏文字'),
-        ),
-      ],
-      child: _menuFace(Icons.visibility_outlined, '视图'),
-    );
-  }
-
-  Widget _moreMenu() {
-    final s = session;
-    final canApply = _enabled(AppCommand.takeLeft);
-    return PopupMenuButton<String>(
-      tooltip: '更多操作',
-      constraints: const BoxConstraints(minWidth: 290, maxWidth: 430),
-      onSelected: (value) {
-        switch (value) {
-          case 'copy' || 'paste' || 'previousInlineDiff' || 'nextInlineDiff':
-            _runEditorCommand(AppCommand.values.byName(value));
-          case 'as':
-            _runCommand(AppCommand.saveAs);
-          case 'reload':
-            _runCommand(AppCommand.reload);
-          case 'goto':
-            _runCommand(AppCommand.goToLine);
-          case 'both-left':
-            s!.applyHunk(_hunk, combine: 1);
-          case 'both-right':
-            s!.applyHunk(_hunk, combine: 2);
-          case 'git':
-            _runCommand(AppCommand.gitSettings);
-          case 'about':
-            _about();
-          case 'close':
-            _runCommand(AppCommand.close);
-        }
-      },
-      itemBuilder: (_) => [
-        PopupMenuItem(
-          height: 40,
-          value: 'as',
-          enabled: _enabled(AppCommand.saveAs),
-          child: _menuLabel('另存为…', AppCommand.saveAs),
-        ),
-        PopupMenuItem(
-          height: 40,
-          value: 'reload',
-          enabled: _enabled(AppCommand.reload),
-          child: _menuLabel('从磁盘重新加载', AppCommand.reload),
-        ),
-        PopupMenuItem(
-          height: 40,
-          value: 'goto',
-          key: const ValueKey('command-goToLine'),
-          enabled: s != null,
-          child: _menuLabel('跳转到行…', AppCommand.goToLine),
-        ),
-        for (final command in [
-          AppCommand.copy,
-          AppCommand.paste,
-          AppCommand.previousInlineDiff,
-          AppCommand.nextInlineDiff,
-        ])
-          PopupMenuItem(
-            key: ValueKey('command-${command.name}'),
-            height: 40,
-            value: command.name,
-            enabled: _editorCommandEnabled(command),
-            child: _menuLabel(command.label, command),
-          ),
-        if (s != null && !s.isMerge) ...[
-          const PopupMenuDivider(height: 12),
-          PopupMenuItem(
-            height: 40,
-            value: 'both-left',
-            enabled: canApply,
-            child: const Text('组合：左侧在前，右侧在后'),
-          ),
-          PopupMenuItem(
-            height: 40,
-            value: 'both-right',
-            enabled: canApply,
-            child: const Text('组合：右侧在前，左侧在后'),
-          ),
-        ],
-        const PopupMenuDivider(height: 12),
-        PopupMenuItem(
-          height: 40,
-          value: 'git',
-          child: _menuLabel('Git 集成…', AppCommand.gitSettings),
-        ),
-        const PopupMenuItem(
-          height: 40,
-          value: 'about',
-          child: Text('关于 fmerge'),
-        ),
-        PopupMenuItem(
-          height: 40,
-          value: 'close',
-          child: _menuLabel('关闭', AppCommand.close),
-        ),
-      ],
-      child: _menuFace(Icons.more_horiz, '更多'),
-    );
-  }
-
   bool _editorCommandEnabled(AppCommand command) => switch (command) {
     AppCommand.copy => editor?.selection.isCollapsed == false,
+    AppCommand.cut =>
+      editor?.selection.isCollapsed == false && !_activeReadOnly,
     AppCommand.paste => session != null && !_activeReadOnly,
+    AppCommand.selectAll => session != null,
     _ => _enabled(command),
   };
 
   void _runEditorCommand(AppCommand command) {
     if (!_editorCommandEnabled(command)) return;
-    if (command == AppCommand.copy || command == AppCommand.paste) {
+    if ({
+      AppCommand.copy,
+      AppCommand.cut,
+      AppCommand.paste,
+      AppCommand.selectAll,
+    }.contains(command)) {
       // 菜单操作会改变焦点，直接对当前文档操作，避免把剪贴板交给菜单项。
       final target = editor!;
       if (command == AppCommand.copy) {
         unawaited(target.copy());
+      } else if (command == AppCommand.cut) {
+        target.cut();
+      } else if (command == AppCommand.selectAll) {
+        target.selectAll();
       } else {
         target.paste();
       }
@@ -1627,152 +1646,166 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     );
   }
 
-  Widget _toolbar() {
+  Widget _toolbar(List<_WorkbenchMenu> menus) {
     final s = session;
-    Widget divider() =>
-        const VerticalDivider(width: 6, indent: 10, endIndent: 10);
-    return Container(
-      height: settings.toolbarLabels ? 66 : 44,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(
-        color: AppPalette.of(context).bg,
-        border: Border(
-          bottom: BorderSide(color: AppPalette.of(context).border),
-        ),
+    final actions = [
+      const _QuickAction(AppCommand.open, Icons.folder_open, '打开', 2),
+      _QuickAction(
+        AppCommand.save,
+        _saving ? Icons.hourglass_empty : Icons.save_outlined,
+        '保存',
+        0,
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) => Scrollbar(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: IntrinsicWidth(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minWidth: constraints.maxWidth,
-                      ),
-                      child: Row(
-                        children: [
-                          _commandTool(
-                            AppCommand.open,
-                            Icons.folder_open,
-                            '打开',
-                          ),
-                          _commandTool(
-                            AppCommand.save,
-                            _saving
-                                ? Icons.hourglass_empty
-                                : Icons.save_outlined,
-                            '保存',
-                          ),
-                          if (s != null) ...[
-                            _commandTool(
-                              AppCommand.reload,
-                              Icons.refresh,
-                              '重新加载',
-                              title: '从磁盘重新加载，读取外部编辑器的修改',
-                            ),
-                            divider(),
-                            _commandTool(AppCommand.undo, Icons.undo, '撤销'),
-                            _commandTool(AppCommand.redo, Icons.redo, '重做'),
-                            _commandTool(
-                              AppCommand.find,
-                              Icons.search,
-                              '查找',
-                              title: '查找 / 替换',
-                            ),
-                            divider(),
-                            _commandTool(
-                              AppCommand.previousDiff,
-                              Icons.keyboard_arrow_up,
-                              '上一处',
-                            ),
-                            Text(
-                              s.error != null
-                                  ? '比较失败'
-                                  : s.busy || s.diff == null
-                                  ? '正在比较…'
-                                  : s.hunkRows.isEmpty
-                                  ? '文件相同'
-                                  : '${_hunk + 1} / ${s.hunkRows.length}',
-                              style: TextStyle(
-                                color: AppPalette.of(context).muted,
-                                fontSize: 11,
-                              ),
-                            ),
-                            _commandTool(
-                              AppCommand.nextDiff,
-                              Icons.keyboard_arrow_down,
-                              '下一处',
-                            ),
-                            if (s.isMerge) ...[
-                              divider(),
-                              _commandTool(
-                                AppCommand.previousConflict,
-                                Icons.skip_previous,
-                                '上一处冲突',
-                              ),
-                              _commandTool(
-                                AppCommand.nextConflict,
-                                Icons.skip_next,
-                                '下一处冲突',
-                              ),
-                            ],
-                            if (!s.isMerge) ...[
-                              divider(),
-                              _commandTool(
-                                AppCommand.takeLeft,
-                                Icons.arrow_forward,
-                                '采用左侧',
-                              ),
-                              _commandTool(
-                                AppCommand.takeRight,
-                                Icons.arrow_back,
-                                '采用右侧',
-                              ),
-                              _commandTool(
-                                AppCommand.toggleLeftEdit,
-                                _leftEditable
-                                    ? Icons.lock_open
-                                    : Icons.lock_outline,
-                                '左侧编辑',
-                                selected: _leftEditable,
-                                title: _leftEditable ? '锁定左侧编辑' : '启用左侧编辑',
-                              ),
-                              divider(),
-                              _commandTool(
-                                AppCommand.swapSides,
-                                Icons.swap_horiz,
-                                '交换左右',
-                              ),
-                            ],
-                            const Spacer(),
-                            if (s.isMerge)
-                              _tag(
-                                s.pending > 0
-                                    ? '${s.pending} 处冲突待确认'
-                                    : '全部冲突已处理',
-                                s.pending > 0
-                                    ? AppPalette.of(context).amber
-                                    : AppPalette.of(context).green,
-                              ),
-                          ] else
-                            const Spacer(),
-                        ],
-                      ),
-                    ),
+      if (s != null) ...[
+        const _QuickAction(AppCommand.reload, Icons.refresh, '重新加载', 4),
+        const _QuickAction(AppCommand.undo, Icons.undo, '撤销', 1),
+        const _QuickAction(AppCommand.redo, Icons.redo, '重做', 3),
+        const _QuickAction(AppCommand.find, Icons.search, '查找', 1),
+        const _QuickAction(
+          AppCommand.previousDiff,
+          Icons.keyboard_arrow_up,
+          '上一处',
+          0,
+        ),
+        const _QuickAction(
+          AppCommand.nextDiff,
+          Icons.keyboard_arrow_down,
+          '下一处',
+          0,
+        ),
+        if (s.isMerge) ...[
+          const _QuickAction(
+            AppCommand.previousConflict,
+            Icons.skip_previous,
+            '上一处冲突',
+            1,
+          ),
+          const _QuickAction(
+            AppCommand.nextConflict,
+            Icons.skip_next,
+            '下一处冲突',
+            1,
+          ),
+        ] else ...[
+          const _QuickAction(
+            AppCommand.takeLeft,
+            Icons.arrow_forward,
+            '采用左侧',
+            0,
+          ),
+          const _QuickAction(AppCommand.takeRight, Icons.arrow_back, '采用右侧', 2),
+          _QuickAction(
+            AppCommand.toggleLeftEdit,
+            _leftEditable ? Icons.lock_open : Icons.lock_outline,
+            '左侧编辑',
+            3,
+            selected: _leftEditable,
+          ),
+          const _QuickAction(AppCommand.swapSides, Icons.swap_horiz, '交换左右', 2),
+        ],
+        _QuickAction(
+          AppCommand.ignoreWhitespace,
+          Icons.space_bar,
+          '忽略空白',
+          2,
+          selected: settings.ignoreWhitespace,
+        ),
+        if (!s.isMerge)
+          _QuickAction(
+            AppCommand.contextOnly,
+            Icons.filter_alt_outlined,
+            '只看差异',
+            3,
+            selected: s.contextOnly,
+          ),
+        _QuickAction(
+          AppCommand.toggleWordWrap,
+          Icons.wrap_text,
+          '自动换行',
+          3,
+          selected: settings.wordWrap,
+        ),
+        _QuickAction(
+          AppCommand.showWhitespace,
+          Icons.format_line_spacing,
+          '空白字符',
+          4,
+          selected: settings.showWhitespace,
+        ),
+      ],
+      const _QuickAction(AppCommand.settings, Icons.tune, '设置', 0),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 先收起文字，再按优先级隐藏快捷入口；完整操作始终保留在分类菜单。
+        final showLabels =
+            settings.toolbarLabels && constraints.maxWidth >= 1280;
+        final menuWidth = menus.fold<double>(
+          0,
+          (width, menu) =>
+              width + ToolbarAction.widthFor(menu.label, showLabels),
+        );
+        final showPosition = s != null && constraints.maxWidth >= 760;
+        var budget =
+            constraints.maxWidth - menuWidth - 32 - (showPosition ? 88 : 0);
+        final visible = <AppCommand>{};
+        for (final priority in [0, 1, 2, 3, 4]) {
+          for (final action in actions.where(
+            (action) => action.priority == priority,
+          )) {
+            final width = ToolbarAction.widthFor(action.label, showLabels);
+            if (width <= budget) {
+              visible.add(action.command);
+              budget -= width;
+            }
+          }
+        }
+        final colors = AppPalette.of(context);
+        return Container(
+          key: const ValueKey('workbench-toolbar'),
+          height: showLabels ? 66 : 44,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+            color: colors.bg,
+            border: Border(bottom: BorderSide(color: colors.border)),
+          ),
+          child: Row(
+            children: [
+              _menuBar(menus, showLabels),
+              const VerticalDivider(width: 12, indent: 10, endIndent: 10),
+              const Spacer(),
+              if (showPosition)
+                SizedBox(
+                  width: 88,
+                  child: Text(
+                    s.error != null
+                        ? '比较失败'
+                        : s.busy || s.diff == null
+                        ? '正在比较…'
+                        : s.isMerge
+                        ? '${s.pending} 处冲突待确认'
+                        : s.hunkRows.isEmpty
+                        ? '文件相同'
+                        : '${_hunk + 1} / ${s.hunkRows.length}',
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: colors.muted, fontSize: 11),
                   ),
                 ),
-              ),
-            ),
+              for (final action in actions)
+                if (visible.contains(action.command))
+                  _commandTool(
+                    action.command,
+                    action.icon,
+                    action.label,
+                    selected: action.selected,
+                    showLabel: showLabels,
+                  ),
+            ],
           ),
-          divider(),
-          _viewMenu(),
-          _moreMenu(),
-          _commandTool(AppCommand.settings, Icons.tune, '设置'),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1887,7 +1920,13 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     return LayoutBuilder(
       builder: (context, c) => Column(
         children: [
-          SizedBox(height: (c.maxHeight - 91) * _topFraction, child: top),
+          SizedBox(
+            height:
+                (c.maxHeight - (s.merger!.state.regions.isEmpty ? 37 : 45))
+                    .clamp(0, c.maxHeight) *
+                _topFraction,
+            child: top,
+          ),
           MouseRegion(
             cursor: SystemMouseCursors.resizeUpDown,
             child: GestureDetector(
@@ -1896,7 +1935,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                     .clamp(.25, .75),
               ),
               child: Container(
-                height: 7,
+                height: 5,
                 color: AppPalette.of(context).border,
                 alignment: Alignment.center,
                 child: Container(
@@ -2195,101 +2234,149 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   Widget _mergeToolbar() {
     final s = session!, regions = s.merger!.state.regions;
+    final colors = AppPalette.of(context);
     if (regions.isEmpty) {
-      return SizedBox(
-        height: 36,
-        child: Center(
-          child: Text(
-            '双方修改没有冲突，可检查结果并保存。',
-            style: TextStyle(fontSize: 12, color: AppPalette.of(context).green),
-          ),
+      return Container(
+        key: const ValueKey('merge-actions'),
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        color: colors.panel,
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline, size: 15, color: colors.green),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '双方修改没有冲突，可检查结果并保存。',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: colors.green),
+              ),
+            ),
+          ],
         ),
       );
     }
     _conflict = _conflict.clamp(0, regions.length - 1);
     final r = regions[_conflict];
-    return Container(
-      height: 48,
-      color: AppPalette.of(context).elevated,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              tooltip: _shortcutHint('上一处冲突', AppCommand.previousConflict),
-              onPressed: () => _runCommand(AppCommand.previousConflict),
-              icon: const Icon(Icons.chevron_left, size: 18),
-            ),
-            Text(
-              '${_conflict + 1}/${regions.length} · 祖先 L${r.chunk.start + 1}',
-              style: TextStyle(
-                fontSize: 11,
-                color: AppPalette.of(context).muted,
+    Widget navigation(AppCommand command, IconData icon) => IconButton(
+      key: ValueKey('merge-${command.name}'),
+      tooltip: _shortcutHint(command.label, command),
+      onPressed: () => _runCommand(command),
+      style: IconButton.styleFrom(
+        minimumSize: const Size(28, 28),
+        fixedSize: const Size(28, 28),
+        padding: EdgeInsets.zero,
+      ),
+      icon: Icon(icon, size: 18),
+    );
+    Widget choice(MergeChoice choice, String label, IconData icon) => Flexible(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 156),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Tooltip(
+            message: label,
+            child: OutlinedButton(
+              onPressed: s.readOnly ? null : () => s.choose(r.chunk.id, choice),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 28),
+                maximumSize: const Size(double.infinity, 28),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(5),
+                ),
               ),
-            ),
-            IconButton(
-              tooltip: _shortcutHint('下一处冲突', AppCommand.nextConflict),
-              onPressed: () => _runCommand(AppCommand.nextConflict),
-              icon: const Icon(Icons.chevron_right, size: 18),
-            ),
-            for (final item in [
-              (MergeChoice.left, s.mergeLabels.leftAction),
-              (MergeChoice.right, s.mergeLabels.rightAction),
-              (MergeChoice.both, '左右组合'),
-              (MergeChoice.base, '保留祖先'),
-            ])
-              Padding(
-                padding: const EdgeInsets.only(right: 5),
-                child: OutlinedButton(
-                  onPressed: s.readOnly
-                      ? null
-                      : () => s.choose(r.chunk.id, item.$1),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 14),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11),
+                    ),
                   ),
-                  child: Text(item.$2, style: const TextStyle(fontSize: 11)),
-                ),
+                ],
               ),
-            PopupMenuButton<String>(
-              tooltip: '其他冲突操作',
-              enabled: !s.readOnly,
-              onSelected: (v) {
-                if (v == 'reverse') {
-                  s.choose(r.chunk.id, MergeChoice.both, reverse: true);
-                } else {
-                  s.markResolved(r.chunk.id, !r.resolved);
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'reverse', child: Text('右侧在前，左侧在后')),
-                PopupMenuItem(
-                  value: 'mark',
-                  child: Text(r.resolved ? '标记为未处理' : '标记为已手工解决'),
-                ),
-              ],
             ),
-            const SizedBox(width: 12),
-            TextButton.icon(
-              onPressed: s.readOnly
-                  ? null
-                  : () => s.markResolved(r.chunk.id, !r.resolved),
-              icon: Icon(
-                r.resolved ? Icons.check_circle : Icons.radio_button_unchecked,
-                size: 15,
-                color: r.resolved
-                    ? AppPalette.of(context).green
-                    : AppPalette.of(context).amber,
+          ),
+        ),
+      ),
+    );
+    return Container(
+      key: const ValueKey('merge-actions'),
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: colors.panel,
+        border: Border(bottom: BorderSide(color: colors.border)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            navigation(AppCommand.previousConflict, Icons.chevron_left),
+            Tooltip(
+              message:
+                  '冲突 ${_conflict + 1} / ${regions.length} · 祖先 L${r.chunk.start + 1}',
+              child: SizedBox(
+                width: constraints.maxWidth >= 760 ? 144 : 72,
+                child: Text(
+                  constraints.maxWidth >= 760
+                      ? '冲突 ${_conflict + 1} / ${regions.length} · L${r.chunk.start + 1}'
+                      : '冲突 ${_conflict + 1} / ${regions.length}',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: colors.muted),
+                ),
               ),
-              label: Text(
-                r.resolved ? '已确认' : '标记解决',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: r.resolved
-                      ? AppPalette.of(context).green
-                      : AppPalette.of(context).amber,
+            ),
+            navigation(AppCommand.nextConflict, Icons.chevron_right),
+            const VerticalDivider(width: 16, indent: 10, endIndent: 10),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  choice(
+                    MergeChoice.left,
+                    s.mergeLabels.leftAction,
+                    Icons.subdirectory_arrow_right,
+                  ),
+                  choice(
+                    MergeChoice.right,
+                    s.mergeLabels.rightAction,
+                    Icons.subdirectory_arrow_left,
+                  ),
+                  if (constraints.maxWidth >= 880)
+                    choice(MergeChoice.both, '左右组合', Icons.call_merge),
+                ],
+              ),
+            ),
+            Tooltip(
+              message: r.resolved ? '标记为未处理' : '标记为已手工解决',
+              child: TextButton.icon(
+                key: const ValueKey('merge-resolved'),
+                onPressed: s.readOnly
+                    ? null
+                    : () => s.markResolved(r.chunk.id, !r.resolved),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 28),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  foregroundColor: r.resolved ? colors.green : colors.amber,
+                ),
+                icon: Icon(
+                  r.resolved
+                      ? Icons.check_circle_outline
+                      : Icons.radio_button_unchecked,
+                  size: 15,
+                ),
+                label: Text(
+                  r.resolved ? '已确认' : '标记解决',
+                  style: const TextStyle(fontSize: 11),
                 ),
               ),
             ),
@@ -2395,14 +2482,6 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     );
   }
 
-  Widget _tag(String text, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: .12),
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: Text(text, style: TextStyle(color: color, fontSize: 10)),
-  );
   Widget _banner(String text, VoidCallback dismiss, {VoidCallback? action}) =>
       Container(
         color: AppPalette.of(context).conflictBg,
@@ -2438,4 +2517,49 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       Text('Git 外部工具配置位于“设置 → Git 集成”。\n\nDiff 核心基于 MIT 许可的 VS Code Myers 算法。'),
     ],
   );
+}
+
+class _WorkbenchMenu {
+  const _WorkbenchMenu(this.label, this.groups);
+  final String label;
+  final List<List<_MenuEntry>> groups;
+  IconData get icon => switch (label) {
+    '文件' => Icons.folder_outlined,
+    '编辑' => Icons.edit_outlined,
+    '视图' => Icons.visibility_outlined,
+    '导航' => Icons.explore_outlined,
+    '比较' => Icons.compare_arrows,
+    '合并' => Icons.merge_outlined,
+    '工具' => Icons.build_outlined,
+    _ => Icons.help_outline,
+  };
+}
+
+class _MenuEntry {
+  const _MenuEntry(
+    this.id,
+    this.label, {
+    this.command,
+    this.checked,
+    this.onSelected,
+  });
+  final String id, label;
+  final AppCommand? command;
+  final bool? checked;
+  final VoidCallback? onSelected;
+}
+
+class _QuickAction {
+  const _QuickAction(
+    this.command,
+    this.icon,
+    this.label,
+    this.priority, {
+    this.selected = false,
+  });
+  final AppCommand command;
+  final IconData icon;
+  final String label;
+  final int priority;
+  final bool selected;
 }
