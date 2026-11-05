@@ -13,6 +13,7 @@ options = parser.parse_args()
 commands = [
     ['dart', 'format', '--output=none', '--set-exit-if-changed', 'lib', 'test', 'integration_test'],
     ['flutter', '--no-version-check', 'analyze'],
+    [sys.executable, 'tool/check_editor.py'],
     ['flutter', '--no-version-check', 'test', 'test'],
 ]
 if options.native:

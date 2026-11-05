@@ -439,10 +439,15 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?> implements C
     if (matches.isEmpty) {
       return null;
     }
+    // 一次建立行起点；每个匹配二分定位，避免按匹配数量重复扫描全文。
+    final List<int> lineStarts = [0];
+    for (int i = 0; i < rawCodeLines.length - 1; i++) {
+      lineStarts.add(lineStarts.last + rawCodeLines[i].length + 1);
+    }
     final List<CodeLineSelection> selections = [];
     for (final Match match in matches) {
-      final CodeLinePosition start = _findPosition(rawCodeLines, match.start);
-      final CodeLinePosition end = _findPosition(rawCodeLines, match.end);
+      final CodeLinePosition start = _findPosition(lineStarts, match.start);
+      final CodeLinePosition end = _findPosition(lineStarts, match.end);
       selections.add(CodeLineSelection(
         baseIndex: start.index,
         baseOffset: start.offset,
@@ -489,21 +494,14 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?> implements C
     );
   }
 
-  static CodeLinePosition _findPosition(List<String> codeLines, int index) {
-    int start = 0;
-    int line = 0;
-    int offset = -1;
-    for (; line < codeLines.length; line++) {
-      if (index <= start + codeLines[line].length) {
-        offset = index - start;
-        break;
-      }
-      start += codeLines[line].length + 1;
+  static CodeLinePosition _findPosition(List<int> lineStarts, int index) {
+    int low = 0, high = lineStarts.length;
+    while (low < high) {
+      final int middle = (low + high) ~/ 2;
+      if (lineStarts[middle] <= index) { low = middle + 1; } else { high = middle; }
     }
-    return CodeLinePosition(
-      index: line,
-      offset: offset
-    );
+    final int line = max(0, low - 1);
+    return CodeLinePosition(index: line, offset: index - lineStarts[line]);
   }
 
 }

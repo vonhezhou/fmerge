@@ -17,3 +17,7 @@
 - _code_indicator.dart：Diff 可见段落按真实文档索引绘制行号，跨省略区不再连续重编号；省略带延伸到行号栏，换行切换沿用实际显示坐标。
 - code_diff.dart / _code_field.dart / _code_selection.dart：省略提示支持双行高度、配色、隐藏行数与原始行号范围；点击提示进入全文并定位所选区域，兼容鼠标和触摸，不改变文本和撤销记录。
 - _consts.dart：平台判断使用 getter，避免首次读取平台后缓存，确保桌面/触摸回归用例按各自平台验证焦点和选区行为。
+
+- _code_find.dart：预建行起始偏移并二分定位匹配端点，避免高匹配查询重复扫描全部前序行；匹配内容及换行边界保持不变。
+- _code_field.dart：按不可变 CodeLine 缓存实际换行高度，复用未变行的测量；宽度、字体、Tab、截断长度和高亮变更使缓存失效，使用 Expando 避免保留已销毁的文档。
+- analysis_options.yaml 与根目录 tool/check_editor.py：独立检查编辑器类型和诊断；tool/editor_analysis_baseline.json 只记录现有上游诊断，不允许新增诊断。

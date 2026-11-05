@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/material.dart' show Color;
 import 'package:re_editor/re_editor.dart';
 
 import 'core/diff.dart';
+import 'core/editor_changes.dart';
 import 'core/diff_navigation.dart';
 import 'core/compare_task.dart';
 import 'core/compare_worker.dart';
@@ -29,11 +31,14 @@ class CompareSession extends ChangeNotifier {
     this.readOnly = false,
     this.mergeLabels = const MergeLabels(),
     this.compareRunner,
+    MergePlan? initialPlan,
   }) {
     leftEditor = CodeLineEditingController.fromText(left.text);
     rightEditor = CodeLineEditingController.fromText(right.text);
     if (base != null) {
-      merger = MergeSession(planMerge(base!.text, left.text, right.text));
+      merger = MergeSession(
+        initialPlan ?? planMerge(base!.text, left.text, right.text),
+      );
       resultEditor = CodeLineEditingController.fromText(merger!.state.text);
       resultEditor!.addListener(_resultChanged);
     }
@@ -47,7 +52,7 @@ class CompareSession extends ChangeNotifier {
     }
     leftEditor.addListener(_inputChanged);
     rightEditor.addListener(_inputChanged);
-    _lastResult = resultEditor?.text ?? '';
+    _lastResultLines = resultEditor?.codeLines;
     _savedResult = output?.text ?? '';
   }
   AppPalette palette = palettes[ColorTheme.fmergeDark]!;
@@ -174,7 +179,8 @@ class CompareSession extends ChangeNotifier {
       _disposed = false,
       _programmatic = false;
   late CodeLines _lastLeft, _lastRight;
-  late String _lastResult, _savedResult;
+  late String _savedResult;
+  CodeLines? _lastResultLines;
   late CodeLineSelection _lastLeftSelection, _lastRightSelection;
   Timer? _timer;
   final CompareRunner? compareRunner;
@@ -182,6 +188,7 @@ class CompareSession extends ChangeNotifier {
   bool _refreshPending = false;
   var _generation = 0;
   CompareOptions options = const CompareOptions();
+  int revision = 0;
   bool showWhitespace = false;
   bool contextOnly = false;
   int contextLines = 3;
@@ -192,6 +199,7 @@ class CompareSession extends ChangeNotifier {
 
   void swapSides() {
     if (isMerge || output != null || busy) return;
+    revision++;
     final file = left;
     left = right;
     right = file;
@@ -347,6 +355,111 @@ class CompareSession extends ChangeNotifier {
           saveEncodings.containsKey(2) ||
           saveEols.containsKey(2));
   bool get dirty => !readOnly && (leftDirty || rightDirty || resultDirty);
+  Map<String, dynamic> recoverySnapshot() => {
+    'left': left.snapshot(),
+    'right': right.snapshot(),
+    'base': base?.snapshot(),
+    'output': output?.snapshot(),
+    'leftText': leftEditor.text,
+    'rightText': rightEditor.text,
+    'resultText': resultEditor?.text,
+    'regions': [
+      for (final r in merger?.state.regions ?? <ConflictRegion>[])
+        {
+          'id': r.chunk.id,
+          'start': r.start,
+          'end': r.end,
+          'resolved': r.resolved,
+          // 保存原冲突来源，恢复不重新运行有时间预算的算法，避免块编号漂移。
+          'chunk': {
+            'id': r.chunk.id,
+            'start': r.chunk.start,
+            'end': r.chunk.end,
+            'base': r.chunk.base,
+            'left': r.chunk.left,
+            'right': r.chunk.right,
+          },
+        },
+    ],
+    'encodings': {
+      for (final e in saveEncodings.entries) '${e.key}': e.value.name,
+    },
+    'eols': {for (final e in saveEols.entries) '${e.key}': e.value},
+  };
+
+  static Future<CompareSession> recover(Map<String, dynamic> data) async {
+    TextFile file(String key) =>
+        TextFile.fromSnapshot(data[key] as Map<String, dynamic>);
+    final left = file('left'), right = file('right');
+    final base = data['base'] == null ? null : file('base');
+    final plan = base == null ? null : const MergePlan([], []);
+    final session = CompareSession(
+      left,
+      right,
+      base: base,
+      output: data['output'] == null ? null : file('output'),
+      initialPlan: plan,
+    );
+    try {
+      session._programmatic = true;
+      session.leftEditor.text = data['leftText'] as String;
+      session.rightEditor.text = data['rightText'] as String;
+      if (plan != null) {
+        final text = data['resultText'] as String;
+        final length = splitLines(text).length;
+        MergeChunk chunk(Map<String, dynamic> raw) => MergeChunk(
+          raw['id'] as int,
+          raw['start'] as int,
+          raw['end'] as int,
+          (raw['base'] as List).cast<String>(),
+          (raw['left'] as List).cast<String>(),
+          (raw['right'] as List).cast<String>(),
+          true,
+          const [],
+        );
+        final regions = [
+          for (final raw in data['regions'] as List)
+            ConflictRegion(
+              chunk(raw['chunk'] as Map<String, dynamic>),
+              raw['start'] as int,
+              raw['end'] as int,
+              raw['resolved'] as bool,
+            ),
+        ];
+        if (regions.map((r) => r.chunk.id).toSet().length != regions.length ||
+            regions.any(
+              (r) => r.start < 0 || r.end < r.start || r.end > length,
+            )) {
+          throw const FormatException('恢复记录的冲突范围无效');
+        }
+        session.merger = MergeSession.restore(MergeSnapshot(text, regions));
+        session.resultEditor!.text = text;
+        session._lastResultLines = session.resultEditor!.codeLines;
+        session.updateResultLayout();
+      }
+      for (final e in (data['encodings'] as Map).entries) {
+        final side = int.parse(e.key as String);
+        if (side < 0 || side > 2) throw const FormatException('恢复编码侧别无效');
+        session.saveEncodings[side] = TextEncoding.values.byName(
+          e.value as String,
+        );
+      }
+      for (final e in (data['eols'] as Map).entries) {
+        if (!['\n', '\r', '\r\n'].contains(e.value)) {
+          throw const FormatException('恢复换行格式无效');
+        }
+        session.saveEols[int.parse(e.key as String)] = e.value as String;
+      }
+      session._lastLeft = session.leftEditor.codeLines;
+      session._lastRight = session.rightEditor.codeLines;
+      session._programmatic = false;
+      return session;
+    } catch (_) {
+      session.dispose();
+      rethrow;
+    }
+  }
+
   int get toolExitCode =>
       isMerge && (!savedMerge || resultDirty || pending > 0) ? 1 : 0;
   static Future<CompareSession> open(
@@ -398,6 +511,11 @@ class CompareSession extends ChangeNotifier {
             output: args.output!,
           )
         : const MergeLabels();
+    final plan = args.merge
+        ? await Isolate.run(
+            () => planMerge(files[2].text, files[0].text, files[1].text),
+          )
+        : null;
     return CompareSession(
       files[0],
       files[1],
@@ -405,6 +523,7 @@ class CompareSession extends ChangeNotifier {
       base: files.length == 3 ? files[2] : null,
       output: output,
       readOnly: args.readOnly,
+      initialPlan: plan,
     );
   }
 
@@ -435,28 +554,33 @@ class CompareSession extends ChangeNotifier {
     if (contextOnly) setContextOnly(false);
     _lastLeft = a;
     _lastRight = b;
+    revision++;
     schedule();
     notifyListeners();
   }
 
   void _resultChanged() {
     if (_programmatic || _disposed) return;
-    final text = resultEditor!.text;
-    if (text == _lastResult) {
+    final lines = resultEditor!.codeLines;
+    if (lines.contentEquals(_lastResultLines!)) {
       _positions[merger!.state] = resultEditor!.selection.extent;
       return;
     }
+    final changes = editorChanges(_lastResultLines!, lines);
+    final text = resultEditor!.text;
+    _lastResultLines = lines;
     _positions[merger!.state] =
         resultEditor!.preValue?.selection.extent ??
         resultEditor!.selection.extent;
-    _lastResult = text;
-    merger!.edit(text);
+    revision++;
+    merger!.edit(text, changes: changes, lineCount: lines.lineCount);
     _positions[merger!.state] = resultEditor!.selection.extent;
     updateResultLayout();
     notifyListeners();
   }
 
   void inputSaved({int? side}) {
+    revision++;
     saveEncodings.remove(side);
     saveEols.remove(side);
     notifyListeners();
@@ -471,11 +595,13 @@ class CompareSession extends ChangeNotifier {
         : resultEditor!;
     TextFile.encode(controller.text, encoding);
     saveEncodings[side] = encoding;
+    revision++;
     notifyListeners();
   }
 
   void setSaveEol(int side, String? eol) {
     if (readOnly || isMerge && side != 2) return;
+    revision++;
     if (eol == null) {
       saveEols.remove(side);
     } else {
@@ -486,6 +612,7 @@ class CompareSession extends ChangeNotifier {
 
   void reloadInput(int side, TextFile file) {
     if (isMerge) throw StateError('合并输入需重新创建合并会话');
+    revision++;
     final controller = side == 0 ? leftEditor : rightEditor;
     if (side == 0) {
       left = file;
@@ -718,6 +845,7 @@ class CompareSession extends ChangeNotifier {
 
   void choose(int id, MergeChoice choice, {bool reverse = false}) {
     if (readOnly) return;
+    revision++;
     _positions[merger!.state] = resultEditor!.selection.extent;
     merger!.choose(id, choice, reverse: reverse);
     _positions[merger!.state] = CodeLinePosition(
@@ -729,6 +857,7 @@ class CompareSession extends ChangeNotifier {
 
   void markResolved(int id, bool resolved) {
     if (readOnly) return;
+    revision++;
     final position = resultEditor!.selection.extent;
     _positions[merger!.state] = position;
     merger!.markResolved(id, resolved);
@@ -738,6 +867,7 @@ class CompareSession extends ChangeNotifier {
 
   void undoMerge() {
     if (readOnly) return;
+    revision++;
     _positions[merger!.state] = resultEditor!.selection.extent;
     merger!.undo();
     _setMergeState();
@@ -745,6 +875,7 @@ class CompareSession extends ChangeNotifier {
 
   void redoMerge() {
     if (readOnly) return;
+    revision++;
     _positions[merger!.state] = resultEditor!.selection.extent;
     merger!.redo();
     _setMergeState();
@@ -766,7 +897,7 @@ class CompareSession extends ChangeNotifier {
         ),
       );
     }
-    _lastResult = resultEditor!.text;
+    _lastResultLines = resultEditor!.codeLines;
     updateResultLayout();
     _programmatic = false;
     notifyListeners();

@@ -22,6 +22,9 @@ class MergeSnapshot {
 }
 
 class MergeSession {
+  MergeSession.restore(MergeSnapshot snapshot) {
+    _history.add(snapshot);
+  }
   MergeSession(MergePlan plan) {
     final lines = <String>[];
     final regions = <ConflictRegion>[];
@@ -66,26 +69,32 @@ class MergeSession {
     }
   }
 
-  void edit(String next) {
+  void edit(String next, {List<SequenceChange>? changes, int? lineCount}) {
     if (next == state.text) return;
-    final changes = myers(splitLines(state.text), splitLines(next)).changes;
+    final edits =
+        changes ?? myers(splitLines(state.text), splitLines(next)).changes;
     int map(int line, bool end) {
       var delta = 0;
-      for (final c in changes) {
-        if (line < c.aStart || line == c.aStart && !end) break;
-        if (line <= c.aEnd) return end ? c.bEnd : c.bStart;
+      for (final c in edits) {
+        // 冲突使用半开区间；紧邻区间外的替换、插入不能被下一次采用吞掉。
+        if (line < c.aStart ||
+            line == c.aStart && (end || c.aStart != c.aEnd)) {
+          break;
+        }
+        if (line < c.aEnd) return end ? c.bEnd : c.bStart;
         delta += c.bEnd - c.bStart - (c.aEnd - c.aStart);
       }
       return line + delta;
     }
 
-    final length = splitLines(next).length;
+    final length = lineCount ?? splitLines(next).length;
     _push(
       MergeSnapshot(next, [
         for (final r in state.regions)
           r.copy(
-            start: map(r.start, false).clamp(0, length),
-            end: map(r.end, true).clamp(0, length),
+            // 空冲突处的插入属于该冲突，两个边界不能向相反方向移成倒置区间。
+            start: map(r.start, r.start == r.end).clamp(0, length),
+            end: map(r.end, r.start != r.end).clamp(0, length),
           ),
       ]),
     );

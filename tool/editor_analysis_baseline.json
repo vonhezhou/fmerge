@@ -1,0 +1,14 @@
+[
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/_code_field.dart|'alpha' is deprecated and shouldn't be used. Use (*.a * 255.0).round().clamp(0, 255).",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/_code_field.dart|'alpha' is deprecated and shouldn't be used. Use (*.a * 255.0).round().clamp(0, 255).",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/_code_field.dart|'alpha' is deprecated and shouldn't be used. Use (*.a * 255.0).round().clamp(0, 255).",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/_code_field.dart|'alpha' is deprecated and shouldn't be used. Use (*.a * 255.0).round().clamp(0, 255).",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/code_editor.dart|'isKeyPressed' is deprecated and shouldn't be used. Use HardwareKeyboard.instance.isLogicalKeyPressed instead. This feature was deprecated after v3.18.0-2.0.pre.",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/code_editor.dart|'isKeyPressed' is deprecated and shouldn't be used. Use HardwareKeyboard.instance.isLogicalKeyPressed instead. This feature was deprecated after v3.18.0-2.0.pre.",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/code_editor.dart|'onKey' is deprecated and shouldn't be used. Use onKeyEvent instead. This feature was deprecated after v3.18.0-2.0.pre.",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/code_editor.dart|'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss.",
+  "INFO|DEPRECATED_MEMBER_USE|packages/re_editor/lib/src/code_editor.dart|'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss.",
+  "WARNING|UNUSED_ELEMENT|packages/re_editor/lib/src/debug/_trace.dart|The declaration '_Trace' isn't referenced.",
+  "WARNING|UNUSED_ELEMENT|packages/re_editor/lib/src/debug/_trace.dart|The declaration 'begin' isn't referenced.",
+  "WARNING|UNUSED_ELEMENT|packages/re_editor/lib/src/debug/_trace.dart|The declaration 'end' isn't referenced."
+]

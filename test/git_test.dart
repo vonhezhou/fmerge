@@ -51,6 +51,40 @@ void main() {
   });
   tearDown(() => dir.delete(recursive: true));
 
+  for (final encoding in [
+    TextEncoding.gbk,
+    TextEncoding.big5,
+    TextEncoding.utf8,
+  ]) {
+    test('按块暂存与取消暂存保留原始编码字节 $encoding', () async {
+      final file = File('${dir.path}/encoded.txt');
+      final old = TextFile.encode('中文原文\n', encoding),
+          next = TextFile.encode('中文修改\n', encoding);
+      await file.writeAsBytes(old);
+      await git(['add', 'encoded.txt']);
+      await git(['commit', '-qm', 'initial']);
+      await file.writeAsBytes(next);
+      final review = await GitReview.open(file.path);
+      await review.apply({0});
+      final staged = await Process.run(
+        'git',
+        ['show', ':encoded.txt'],
+        workingDirectory: dir.path,
+        stdoutEncoding: null,
+      );
+      expect(staged.stdout, next);
+      await (await GitReview.open(file.path, staged: true)).apply({0});
+      final unstaged = await Process.run(
+        'git',
+        ['show', ':encoded.txt'],
+        workingDirectory: dir.path,
+        stdoutEncoding: null,
+      );
+      expect(unstaged.stdout, old);
+      expect(await file.readAsBytes(), next);
+    });
+  }
+
   test('选择不相邻差异块暂存，保留已有暂存、其他文件和工作区；可逆向取消暂存', () async {
     final file = File('${dir.path}/测试 file [1].txt');
     final original = List.generate(50, (i) => 'line $i');

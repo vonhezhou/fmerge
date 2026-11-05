@@ -1,0 +1,3 @@
+# 上游风格保持不变，独立检查 Dart 类型、错误与警告。
+analyzer:
+  exclude: []

@@ -7,7 +7,7 @@ flutter --no-version-check pub get --enforce-lockfile
 python3 tool/check.py
 ```
 
-保持修改聚焦，业务行为变化应补充直接相关的回归测试。涉及保存、编码、合并或 Git 索引时，请验证失败路径和原始数据保护。修改项目内 `packages/re_editor` 时保留上游风格与许可，并同步更新 `FMERGE_CHANGES.md`；不要批量格式化上游源码。
+保持修改聚焦，业务行为变化应补充直接相关的回归测试。涉及保存、编码、合并或 Git 索引时，请验证失败路径和原始数据保护。修改项目内 `packages/re_editor` 时保留上游风格与许可，并同步更新 `FMERGE_CHANGES.md`；不要批量格式化上游源码。`tool/check_editor.py` 会独立分析编辑器；只允许 `tool/editor_analysis_baseline.json` 中明确记录的上游诊断，不能通过扩大基线掩盖新问题。
 
 macOS 原生集成和 Release 构建使用：
 

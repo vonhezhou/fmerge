@@ -136,6 +136,7 @@ class Settings extends ChangeNotifier {
   bool contextOnly = false;
   bool showOverview = true, showLineDetails = true;
   bool wordWrap = false, detectMoves = true;
+  bool crashRecovery = false;
   InlineDiffMode inlineMode = InlineDiffMode.characters;
   final shortcuts = ShortcutPreferences();
   bool get ignoreWhitespace => whitespace != WhitespaceMode.exact;
@@ -228,6 +229,7 @@ class Settings extends ChangeNotifier {
     showOverview = flag('showOverview', true);
     showLineDetails = flag('showLineDetails', true);
     wordWrap = flag('wordWrap', false);
+    crashRecovery = flag('crashRecovery', false);
     detectMoves = flag('detectMoves', true);
     inlineMode = json['inlineMode'] == InlineDiffMode.words.name
         ? InlineDiffMode.words
@@ -261,6 +263,7 @@ class Settings extends ChangeNotifier {
     'showOverview': showOverview,
     'showLineDetails': showLineDetails,
     'wordWrap': wordWrap,
+    'crashRecovery': crashRecovery,
     'detectMoves': detectMoves,
     'inlineMode': inlineMode.name,
     'highlight': highlight,

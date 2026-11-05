@@ -487,6 +487,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
           s.backup,
           (value) => s.backup = value,
         ),
+        _toggle(
+          '崩溃恢复',
+          '将未保存正文写入本机恢复文件，约 1 秒后更新。正常离开清理当前记录；关闭此项会清理本窗口记录。',
+          s.crashRecovery,
+          (value) => s.crashRecovery = value,
+        ),
       ]),
       if (Platform.isMacOS)
         _card([

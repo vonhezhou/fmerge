@@ -142,10 +142,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   final _localWrap = CodeDiffWrap();
   List<Object?>? _wrapKey;
   List<int> _wrapHeights = const [];
+  Expando<_WrapMetric> _wrapMetrics = Expando();
   CodeDiffWrap get _wrap => _diffLayout?.wrap ?? _localWrap;
   int _rowStart(int row) => _horizontalViewport == null ? _wrap.rowStart(row) : row;
   int _rowHeight(int row) => _horizontalViewport == null ? _wrap.rowHeight(row) : 1;
   void _highlightChanged() {
+    _wrapMetrics = Expando();
     _wrapKey = null;
     markNeedsLayout();
   }
@@ -1408,9 +1410,14 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         _wrapHeights = List<int>.filled(layout.totalRows, 1);
         for (final i in layout.visibleLines ?? Iterable<int>.generate(_codes.length)) {
           if (layout.hiddenLines.contains(i)) continue;
-          final paragraph = _buildParagraph(i, width);
+          final code = _codes[i];
+          final metricKey = <Object?>[width, _textStyle, _maxLengthSingleLineRendering, _highlighter._controller.displayTabSize];
+          final cached = _wrapMetrics[code];
+          final height = cached != null && listEquals(cached.key, metricKey)
+              ? cached.height : _buildParagraph(i, width).lineCount;
+          _wrapMetrics[code] = _WrapMetric(metricKey, height);
           final row = layout.lineRows[i];
-          _wrapHeights[row] = max(_wrapHeights[row], paragraph.lineCount);
+          _wrapHeights[row] = max(_wrapHeights[row], height);
         }
       }
       _wrap.update(this, _wrapHeights);
@@ -1528,6 +1535,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     );
   }
 
+}
+
+class _WrapMetric {
+  final List<Object?> key;
+  final int height;
+  const _WrapMetric(this.key, this.height);
 }
 
 class _CodeChunkIndicator {

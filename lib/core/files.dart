@@ -28,6 +28,24 @@ class TextFile {
   String? digest;
   String? _resolvedPath;
   bool _utf16Bom = true;
+  Map<String, Object?> snapshot() => {
+    'path': path,
+    'original': original,
+    'encoding': encoding.name,
+    'digest': digest,
+    'resolvedPath': _resolvedPath,
+    'utf16Bom': _utf16Bom,
+  };
+
+  factory TextFile.fromSnapshot(Map<String, dynamic> value) =>
+      TextFile._(
+          value['path'] as String?,
+          value['original'] as String,
+          TextEncoding.values.byName(value['encoding'] as String),
+          value['digest'] as String?,
+        )
+        .._resolvedPath = value['resolvedPath'] as String?
+        .._utf16Bom = value['utf16Bom'] as bool;
   List<int> originalBytes() => encode(original, encoding, utf16Bom: _utf16Bom);
   String get text => normalize(original);
   String get name => path == null ? '未命名' : p.basename(path!);

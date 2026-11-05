@@ -1,7 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:path/path.dart' as p;
+
+import '../core/disk_check.dart';
+import 'session_files.dart';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +22,7 @@ import '../core/launch.dart';
 import '../core/merge.dart';
 import '../core/merge_labels.dart';
 import '../core/settings.dart';
+import '../core/recovery.dart';
 import '../core/shortcuts.dart';
 import '../session.dart';
 import '../palette.dart';
@@ -30,6 +36,9 @@ import 'format_dialog.dart';
 import 'go_to_line_dialog.dart';
 import 'base_dialog.dart';
 import 'welcome_view.dart';
+import 'git_review_dialog.dart';
+
+part 'workbench_files.dart';
 
 class Workbench extends StatefulWidget {
   const Workbench({
@@ -72,6 +81,15 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   int _active = 1, _hunk = 0, _conflict = 0;
   double _topFraction = .50;
   String? _notice;
+  int? _invocationResult;
+  bool _choosingFiles = false;
+  Timer? _recoveryTimer;
+  String? _adoptedRecovery;
+  late final _recovery = RecoveryStore(
+    settings.storageDirectory ?? Settings.directory,
+  );
+  (CompareSession?, int?, bool, bool)? _recoveryState;
+  void _update(VoidCallback change) => setState(change);
   @override
   void initState() {
     super.initState();
@@ -110,6 +128,11 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
           });
     }
     if (widget.initial != null) _attach(widget.initial!);
+    if (widget.nativeWindow &&
+        settings.crashRecovery &&
+        widget.initial == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _recoveryNotice());
+    }
   }
 
   Settings get settings => widget.settings;
@@ -179,7 +202,14 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       ? _resultFind
       : _rightFind;
   void _attach(CompareSession next) {
+    _recoveryTimer?.cancel();
+    _recoveryState = null;
+    if (widget.nativeWindow && settings.persist) unawaited(_clearRecovery());
     final old = session;
+    if (widget.options.merge && old != null && identical(old, widget.initial)) {
+      // Git 等待的是本次调用的原始合并，换开其他文件不能将取消误报为成功。
+      _invocationResult = old.toolExitCode;
+    }
     old?.removeListener(_changed);
     _leftFind?.dispose();
     _rightFind?.dispose();
@@ -250,6 +280,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   void _changed() {
     if (!mounted) return;
+    _scheduleRecovery();
     setState(() {
       if (session?.diff != null) {
         _hunk = _hunk.clamp(
@@ -321,7 +352,11 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   }
 
   Future<void> _close() async {
-    if (_closing || _saving || ModalRoute.of(context)?.isCurrent == false) {
+    if (_closing ||
+        _saving ||
+        _opening ||
+        _choosingFiles ||
+        ModalRoute.of(context)?.isCurrent == false) {
       return;
     }
     _closing = true;
@@ -329,7 +364,12 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       _closing = false;
       return;
     }
-    final code = session?.toolExitCode ?? (widget.startupError == null ? 0 : 1);
+    final code =
+        _invocationResult ??
+        session?.toolExitCode ??
+        (widget.startupError == null ? 0 : 1);
+    _recoveryTimer?.cancel();
+    if (widget.nativeWindow && settings.persist) await _clearRecovery();
     if (widget.onExit != null) {
       widget.onExit!(code);
       _closing = false;
@@ -348,25 +388,24 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     _checkDisk();
   }
 
+  final _diskCheck = DiskCheck();
+
   Future<void> _checkDisk() async {
     final current = session;
     if (current == null) return;
     try {
-      var changed = false;
-      for (final file in [
-        current.left,
-        current.right,
-        if (current.base != null) current.base!,
-        if (current.output != null) current.output!,
-      ]) {
-        if (file.path == null || file.digest == null) continue;
-        final disk = File(file.path!);
-        if (!await disk.exists() ||
-            sha256.convert(await disk.readAsBytes()).toString() !=
-                file.digest) {
-          changed = true;
-        }
-      }
+      final revision = current.revision;
+      final changed = await _diskCheck.changed([
+        for (final file in [
+          current.left,
+          current.right,
+          ?current.base,
+          ?current.output,
+        ])
+          if (file.path != null && file.digest != null)
+            (file.path!, file.digest!),
+      ]);
+      if (current.revision != revision) return;
       if (mounted && current == session) setState(() => _diskChanged = changed);
     } catch (_) {
       /* 保存路径仍执行独立外部改动校验，焦点检查不打断编辑。 */
@@ -421,6 +460,8 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     setState(() => _opening = true);
     try {
       if (!await _leave() || !mounted) return;
+      final current = session;
+      final revision = current?.revision;
       if (options == null) {
         final files = await openFiles(confirmButtonText: '选择比较文件（可多选两个）');
         if (files.isEmpty || !mounted) return;
@@ -444,59 +485,22 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         }
         options = LaunchOptions(left: files.first.path, right: right.path);
       }
-      if (widget.nativeWindow) {
-        for (final path in [
-          options.left!,
-          options.right!,
-          if (options.base != null) options.base!,
-        ]) {
-          await DirectoryAccess.read(path);
-        }
-        if (options.output != null) {
-          await DirectoryAccess.write(options.output!);
-        }
-      }
-      final left = await _readInput(
-        options.left!,
-        encodingSide == 0 ? encoding : previous?.left.encoding,
-      );
-      if (left == null) return;
-      final right = await _readInput(
-        options.right!,
-        encodingSide == 1 ? encoding : previous?.right.encoding,
-      );
-      if (right == null) return;
-      final base = options.base == null
-          ? null
-          : await _readInput(
-              options.base!,
-              encodingSide == 3 ? encoding : previous?.base?.encoding,
-            );
-      if (options.base != null && base == null) return;
-      final next = await CompareSession.open(
+      final next = await SessionFiles.open(
         options,
-        inputs: [left, right, ?base],
-        leftEncoding: left.encoding,
-        rightEncoding: right.encoding,
-        baseEncoding: base?.encoding,
-        outputEncoding: previous?.output?.encoding,
+        read: _readInput,
+        native: widget.nativeWindow,
+        previous: previous,
+        encodingSide: encodingSide,
+        encoding: encoding,
       );
-      if (previous != null) {
-        next.leftEditor.displayTabSize = previous.leftEditor.displayTabSize;
-        next.rightEditor.displayTabSize = previous.rightEditor.displayTabSize;
-        if (next.resultEditor != null) {
-          next.resultEditor!.displayTabSize =
-              previous.resultEditor?.displayTabSize ?? 4;
-        }
-        next.leftLanguage = previous.leftLanguage;
-        next.rightLanguage = previous.rightLanguage;
-        next.resultLanguage = previous.resultLanguage;
-        next.baseLanguage = previous.baseLanguage;
-      }
-      if (mounted) {
+      if (next == null) return;
+      if (mounted &&
+          identical(current, session) &&
+          current?.revision == revision) {
         setState(() => _attach(next));
       } else {
         next.dispose();
+        if (mounted) _message('加载期间有新的修改，已保留当前会话，请重新打开');
       }
     } catch (e) {
       _message('打开失败：$e');
@@ -979,9 +983,16 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       if (discard != true || !mounted || !identical(s, session)) return;
     }
     setState(() => _opening = true);
+    final revision = s.revision;
     try {
       final next = await TextFile.read(file!.path!, encoding: encoding);
-      if (mounted && identical(s, session)) s.reloadInput(side, next);
+      if (mounted && identical(s, session)) {
+        if (s.revision == revision) {
+          s.reloadInput(side, next);
+        } else {
+          _message('读取期间有新的修改，已保留当前内容');
+        }
+      }
     } catch (error) {
       _message('重新读取失败：$error');
     } finally {
@@ -1017,6 +1028,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
       }
       if (s.options != settings.comparison) s.refresh(settings.comparison);
     }
+    _scheduleRecovery();
     _saveSettings();
   }
 
@@ -1031,7 +1043,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
   bool _enabled(AppCommand command) {
     final s = session;
     return switch (command) {
-      AppCommand.open => !_opening && !_saving,
+      AppCommand.open => !_opening && !_saving && !_choosingFiles,
       AppCommand.save ||
       AppCommand.saveAs => s != null && !s.readOnly && !_saving,
       AppCommand.reload =>
@@ -1197,6 +1209,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
 
   @override
   void dispose() {
+    _recoveryTimer?.cancel();
     settings.removeListener(_appearanceChanged);
     if (widget.nativeWindow) {
       windowManager.removeListener(this);
@@ -1242,7 +1255,7 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
                   () => setState(() => _diskChanged = false),
                   action: _reload,
                 ),
-              Expanded(child: session == null ? _welcome() : _workspace()),
+              Expanded(child: _dropArea()),
               if (session != null && settings.showLineDetails) _lineDetails(),
               _status(),
             ],
@@ -1344,7 +1357,23 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
     );
     return [
       _WorkbenchMenu('文件', [
-        [command(AppCommand.open, label: '打开比较…')],
+        [
+          command(AppCommand.open, label: '打开比较…'),
+          _MenuEntry(
+            'open-merge',
+            '打开三方合并…',
+            onSelected: _opening || _saving || _choosingFiles
+                ? null
+                : _openMerge,
+          ),
+        ],
+        [
+          _MenuEntry(
+            'recover',
+            '恢复未保存会话…',
+            onSelected: _opening || _saving ? null : _recoverSession,
+          ),
+        ],
         [command(AppCommand.save), command(AppCommand.saveAs, label: '另存为…')],
         [command(AppCommand.reload, label: '从磁盘重新加载')],
         [command(AppCommand.close, label: '关闭')],
@@ -1469,6 +1498,16 @@ class _WorkbenchState extends State<Workbench> with WindowListener {
         ],
       ]),
       _WorkbenchMenu('工具', [
+        [
+          _MenuEntry(
+            'git-review',
+            'Git 暂存预览 / 取消暂存…',
+            onSelected:
+                s == null || s.isMerge || s.readOnly || _saving || _staging
+                ? null
+                : _gitReview,
+          ),
+        ],
         [
           command(AppCommand.settings, label: '设置…'),
           command(AppCommand.gitSettings, label: 'Git 集成…'),

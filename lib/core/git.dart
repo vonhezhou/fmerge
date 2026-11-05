@@ -135,14 +135,18 @@ class GitReview {
     'GIT_TERMINAL_PROMPT': '0',
     'LC_ALL': 'C',
   };
-  static Future<String> _git(String cwd, List<String> args) async {
+  static Future<String> _git(
+    String cwd,
+    List<String> args, {
+    bool bytes = false,
+  }) async {
     final result = await Process.run(
       await executable(),
       ['-c', 'core.quotePath=true', ...args],
       workingDirectory: cwd,
       environment: _environment,
       includeParentEnvironment: false,
-      stdoutEncoding: utf8,
+      stdoutEncoding: bytes ? latin1 : utf8,
       stderrEncoding: utf8,
     );
     if (result.exitCode != 0) throw StateError('Git 操作失败：${result.stderr}');
@@ -175,7 +179,7 @@ class GitReview {
         if (staged) '--cached',
         '--',
         path,
-      ]);
+      ], bytes: true);
 
   static Future<GitReview> open(String file, {bool staged = false}) async {
     // macOS 的 /var、/tmp 等别名与 Git 返回的真实根目录必须使用同一口径。
@@ -233,7 +237,8 @@ class GitReview {
     );
     final stdout = process.stdout.drain<void>();
     final stderr = process.stderr.transform(utf8.decoder).join();
-    process.stdin.add(utf8.encode(text));
+    // 补丁正文使用 Latin-1 字节容器，头部仍为 Git 的 ASCII 引用格式。
+    process.stdin.add(latin1.encode(text));
     await process.stdin.close();
     final code = await process.exitCode;
     await stdout;
@@ -251,8 +256,22 @@ class GitMergeLabels {
     required String output,
   }) async {
     try {
+      // 普通文件合并不启动 Git；同时兼容 .git 为文件的 linked worktree。
       final parent = await Directory(p.dirname(p.absolute(output)))
           .resolveSymbolicLinks();
+      var folder = Directory(parent);
+      var repository = false;
+      while (true) {
+        if (await FileSystemEntity.type(p.join(folder.path, '.git')) !=
+            FileSystemEntityType.notFound) {
+          repository = true;
+          break;
+        }
+        final parent = folder.parent;
+        if (p.equals(parent.path, folder.path)) break;
+        folder = parent;
+      }
+      if (!repository) return const MergeLabels();
       final absolute = p.join(parent, p.basename(output));
       final root = await GitReview.findRoot(absolute);
       if (!p.isWithin(root, absolute)) return const MergeLabels();
