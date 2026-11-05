@@ -17,6 +17,18 @@
 
 详细操作和边界见 [使用指南](docs/usage.md)，性能评估状态与测量方法见 [性能评估](docs/performance.md)。
 
+## 应用截图
+
+以下为 macOS 上实际运行的应用界面。
+
+**双栏文本比较**：行内高亮、移动代码识别与自动换行。
+
+![双栏文本比较与行内差异高亮](docs/screenshots/text-compare.png)
+
+**三方合并**：选择冲突内容，编辑并确认合并结果。
+
+![三方合并与冲突确认](docs/screenshots/three-way-merge.png)
+
 ## 从源码运行
 
 使用 **Flutter 3.47.9 stable / Dart 3.13.7**，与 CI 保持一致。需要本平台的 Flutter 桌面构建工具链；Git 功能另需安装 Git。
